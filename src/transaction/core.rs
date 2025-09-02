@@ -25,7 +25,7 @@ pub struct Transaction {
     /// Optional memo data
     pub memo: Vec<u8>,
     /// Identity-specific data (only for identity transactions)
-    /// This data is processed by zhtp-identity package
+    /// This data is processed by lib-identity package
     pub identity_data: Option<IdentityTransactionData>,
 }
 
@@ -53,7 +53,7 @@ pub struct TransactionOutput {
     pub recipient: PublicKey,
 }
 
-/// Identity transaction data (processed by zhtp-identity package)
+/// Identity transaction data (processed by lib-identity package)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdentityTransactionData {
     /// Zero-knowledge DID identifier

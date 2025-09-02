@@ -35,7 +35,7 @@ pub struct Blockchain {
     pub identity_registry: HashMap<String, IdentityTransactionData>,
     /// Identity DID to block height mapping for verification
     pub identity_blocks: HashMap<String, u64>,
-    /// Economics transaction storage (handled by zhtp-economics)
+    /// Economics transaction storage (handled by lib-economy)
     pub economics_transactions: Vec<EconomicsTransaction>,
 }
 
@@ -155,17 +155,28 @@ impl Blockchain {
 
     /// Verify a transaction against current blockchain state
     pub fn verify_transaction(&self, transaction: &Transaction) -> Result<bool> {
-        // Use the transaction validation module
-        let validator = crate::transaction::validation::TransactionValidator::new();
-        let result = validator.validate_transaction(transaction);
+        // Use the stateful transaction validator with blockchain context for identity verification
+        let validator = crate::transaction::validation::StatefulTransactionValidator::new(self);
+        
+        // Check if this is a system transaction (empty inputs indicates system transaction)
+        let is_system_transaction = transaction.inputs.is_empty();
+        
+        tracing::info!("🔍 Verifying transaction with identity verification enabled");
+        tracing::info!("🔍 System transaction: {}", is_system_transaction);
+        tracing::info!("🔍 Transaction type: {:?}", transaction.transaction_type);
+        
+        let result = validator.validate_transaction_with_state(transaction);
         
         if let Err(ref error) = result {
-            warn!("🔍 Transaction validation failed: {:?}", error);
-            warn!("🔍 Transaction details: inputs={}, outputs={}, fee={}, type={:?}", 
+            tracing::warn!("🔍 Transaction validation failed: {:?}", error);
+            tracing::warn!("🔍 Transaction details: inputs={}, outputs={}, fee={}, type={:?}, system={}", 
                 transaction.inputs.len(), 
                 transaction.outputs.len(), 
                 transaction.fee,
-                transaction.transaction_type);
+                transaction.transaction_type,
+                is_system_transaction);
+        } else {
+            tracing::info!("✅ Transaction validation passed with identity verification");
         }
         
         Ok(result.is_ok())
@@ -261,6 +272,13 @@ impl Blockchain {
             return Err(anyhow::anyhow!("Transaction verification failed"));
         }
 
+        self.pending_transactions.push(transaction);
+        Ok(())
+    }
+
+    /// Add system transaction to pending pool without validation (for identity registration, etc.)
+    pub fn add_system_transaction(&mut self, transaction: Transaction) -> Result<()> {
+        tracing::info!("🔗 Adding system transaction to pending pool (bypassing validation)");
         self.pending_transactions.push(transaction);
         Ok(())
     }

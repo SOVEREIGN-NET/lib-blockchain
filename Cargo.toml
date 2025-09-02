@@ -1,5 +1,5 @@
 [package]
-name = "zhtp-blockchain"
+name = "lib-blockchain"
 version = "0.1.0"
 edition = "2021"
 description = "ZHTP Blockchain Core Implementation"
@@ -22,10 +22,10 @@ blake3 = "1.5"
 rand = "0.8"
 
 # Internal ZHTP dependencies
-zhtp-crypto = { path = "../zhtp-crypto" }
-zhtp-zk = { path = "../zhtp-zk" }
-zhtp-identity = { path = "../zhtp-identity" }
-# zhtp-economics = { path = "../zhtp-economics" }  # TODO: Add when package is created
+lib-crypto = { path = "../lib-crypto" }
+lib-proofs = { path = "../lib-proofs" }
+lib-identity = { path = "../lib-identity" }
+# lib-economy = { path = "../lib-economy" }  # TODO: Add when package is created
 
 [features]
 default = []

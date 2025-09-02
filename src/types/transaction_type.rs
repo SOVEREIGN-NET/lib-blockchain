@@ -1,7 +1,7 @@
 //! Transaction type definitions
 //!
 //! Defines the types of transactions supported by the ZHTP blockchain.
-//! Note: Identity transaction processing is handled by integration with zhtp-identity package.
+//! Note: Identity transaction processing is handled by integration with lib-identity package.
 
 use serde::{Serialize, Deserialize};
 
@@ -10,15 +10,15 @@ use serde::{Serialize, Deserialize};
 pub enum TransactionType {
     /// Standard value transfer between accounts
     Transfer,
-    /// Identity registration on blockchain (delegates to zhtp-identity)
+    /// Identity registration on blockchain (delegates to lib-identity)
     IdentityRegistration,
-    /// Identity update/modification (delegates to zhtp-identity)  
+    /// Identity update/modification (delegates to lib-identity)  
     IdentityUpdate,
-    /// Identity revocation (delegates to zhtp-identity)
+    /// Identity revocation (delegates to lib-identity)
     IdentityRevocation,
-    /// Smart contract deployment (delegates to zhtp-contracts)
+    /// Smart contract deployment (delegates to lib-contracts)
     ContractDeployment,
-    /// Smart contract execution (delegates to zhtp-contracts)
+    /// Smart contract execution (delegates to lib-contracts)
     ContractExecution,
 }
 

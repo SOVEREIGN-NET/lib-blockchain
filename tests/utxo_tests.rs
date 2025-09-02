@@ -2,18 +2,18 @@
 //!
 //! Tests the UTXO management, nullifier tracking, and double-spend prevention.
 
-use zhtp_blockchain::*;
-use zhtp_blockchain::blockchain::*;
-use zhtp_blockchain::transaction::*;
-use zhtp_blockchain::transaction::core::IdentityTransactionData;
-use zhtp_blockchain::block::*;
-use zhtp_blockchain::types::*;
-use zhtp_blockchain::integration::*;
+use lib_blockchain::*;
+use lib_blockchain::blockchain::*;
+use lib_blockchain::transaction::*;
+use lib_blockchain::transaction::core::IdentityTransactionData;
+use lib_blockchain::block::*;
+use lib_blockchain::types::*;
+use lib_blockchain::integration::*;
 use anyhow::Result;
 use std::collections::HashSet;
 
 // Import ZK types for creating valid test proofs
-use zhtp_zk::{ZkTransactionProof, ZkProof};
+use lib_proofs::{ZkTransactionProof, ZkProof};
 
 // Helper function to create valid test ZK proofs
 fn create_valid_test_zk_proof() -> ZkProof {
@@ -38,7 +38,7 @@ fn create_valid_test_transaction_proof() -> ZkTransactionProof {
 
 // Helper function to create a mined block that meets difficulty
 fn create_mined_block(blockchain: &Blockchain, transactions: Vec<Transaction>) -> Result<Block> {
-    use zhtp_blockchain::block::creation::create_block;
+    use lib_blockchain::block::creation::create_block;
     
     let previous_hash = blockchain.latest_block().unwrap().hash();
     let height = blockchain.height + 1;

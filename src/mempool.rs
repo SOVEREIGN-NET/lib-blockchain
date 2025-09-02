@@ -154,11 +154,26 @@ impl Mempool {
         let validator = crate::transaction::validation::TransactionValidator::new();
         
         match validator.validate_transaction(transaction) {
-            Ok(()) => Ok(()),
-            Err(ValidationError::DoubleSpend) => Err(MempoolError::DoubleSpend),
-            Err(ValidationError::InvalidSignature) => Err(MempoolError::InvalidSignature),
-            Err(ValidationError::InvalidZkProof) => Err(MempoolError::InvalidProof),
-            Err(_) => Err(MempoolError::InvalidTransaction),
+            Ok(()) => {
+                log::info!("✅ Transaction validation successful");
+                Ok(())
+            },
+            Err(ValidationError::DoubleSpend) => {
+                log::error!("❌ Validation failed: DoubleSpend");
+                Err(MempoolError::DoubleSpend)
+            },
+            Err(ValidationError::InvalidSignature) => {
+                log::error!("❌ Validation failed: InvalidSignature");
+                Err(MempoolError::InvalidSignature)
+            },
+            Err(ValidationError::InvalidZkProof) => {
+                log::error!("❌ Validation failed: InvalidZkProof - ZK proof verification failed");
+                Err(MempoolError::InvalidProof)
+            },
+            Err(e) => {
+                log::error!("❌ Validation failed: {:?}", e);
+                Err(MempoolError::InvalidTransaction)
+            },
         }
     }
 

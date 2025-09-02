@@ -4,7 +4,7 @@
 
 use crate::transaction::core::Transaction;
 use crate::types::Hash;
-use zhtp_crypto::{Signature, PrivateKey, PublicKey};
+use lib_crypto::{Signature, PrivateKey, PublicKey};
 use serde::{Serialize, Deserialize};
 
 /// Transaction signing error types
@@ -38,7 +38,7 @@ pub fn sign_transaction(
     let signing_hash = crate::transaction::hashing::hash_for_signature(transaction);
     
     // Create a keypair from the private key for signing
-    let keypair = zhtp_crypto::KeyPair::generate()
+    let keypair = lib_crypto::KeyPair::generate()
         .map_err(|e| SigningError::CryptoError(e.to_string()))?;
     
     // Sign the hash using the keypair
@@ -58,20 +58,20 @@ pub fn verify_transaction_signature(
 ) -> Result<bool, SigningError> {
     // Create signing hash (without signature)
     let mut tx_for_verification = transaction.clone();
-    tx_for_verification.signature = zhtp_crypto::Signature {
+    tx_for_verification.signature = lib_crypto::Signature {
         signature: Vec::new(),
-        public_key: zhtp_crypto::PublicKey::new(Vec::new()),
-        algorithm: zhtp_crypto::SignatureAlgorithm::Dilithium5,
+        public_key: lib_crypto::PublicKey::new(Vec::new()),
+        algorithm: lib_crypto::SignatureAlgorithm::Dilithium5,
         timestamp: 0,
     };
     
     let signing_hash = crate::transaction::hashing::hash_for_signature(&tx_for_verification);
     
-    // Use zhtp_crypto's verify_signature function
+    // Use lib_crypto's verify_signature function
     let signature_bytes = transaction.signature.signature.clone();
     let public_key_bytes = public_key.as_bytes();
     
-    zhtp_crypto::verify_signature(signing_hash.as_bytes(), &signature_bytes, &public_key_bytes)
+    lib_crypto::verify_signature(signing_hash.as_bytes(), &signature_bytes, &public_key_bytes)
         .map_err(|e| SigningError::CryptoError(e.to_string()))
 }
 
@@ -124,7 +124,7 @@ impl MultiSigContext {
                 let signature_bytes = signature.signature.clone();
                 let public_key_bytes = self.public_keys[i].as_bytes();
                 
-                let is_valid = zhtp_crypto::verify_signature(
+                let is_valid = lib_crypto::verify_signature(
                     signing_hash.as_bytes(), 
                     &signature_bytes, 
                     &public_key_bytes
@@ -173,7 +173,7 @@ pub fn sign_contract_transaction(
     private_key: &PrivateKey,
 ) -> Result<(), SigningError> {
     // Contract transactions may need additional validation
-    // Delegate to zhtp-contracts package for contract-specific logic
+    // Delegate to lib-contracts package for contract-specific logic
     sign_transaction(transaction, private_key)
 }
 

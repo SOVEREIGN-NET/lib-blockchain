@@ -445,6 +445,82 @@ dependencies = [
 ]
 
 [[package]]
+name = "lib-blockchain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bincode",
+ "blake3",
+ "hex",
+ "lib-crypto",
+ "lib-identity",
+ "lib-proofs",
+ "log",
+ "rand",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "lib-crypto"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "chacha20poly1305",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "hex",
+ "hkdf",
+ "pqcrypto-dilithium",
+ "pqcrypto-kyber",
+ "pqcrypto-traits",
+ "rand",
+ "serde",
+ "sha3",
+ "zeroize",
+]
+
+[[package]]
+name = "lib-identity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "blake3",
+ "hex",
+ "lib-crypto",
+ "lib-proofs",
+ "md5",
+ "rand",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
+name = "lib-proofs"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "bincode",
+ "lib-crypto",
+ "log",
+ "num_cpus",
+ "serde",
+ "tracing",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.175"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1175,79 +1251,4 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "zhtp-blockchain"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bincode",
- "blake3",
- "hex",
- "log",
- "rand",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
- "uuid",
- "zhtp-crypto",
- "zhtp-identity",
- "zhtp-zk",
-]
-
-[[package]]
-name = "zhtp-crypto"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake3",
- "chacha20poly1305",
- "curve25519-dalek",
- "ed25519-dalek",
- "hex",
- "hkdf",
- "pqcrypto-dilithium",
- "pqcrypto-kyber",
- "pqcrypto-traits",
- "rand",
- "serde",
- "sha3",
- "zeroize",
-]
-
-[[package]]
-name = "zhtp-identity"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode",
- "blake3",
- "hex",
- "md5",
- "rand",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "tracing",
- "zeroize",
- "zhtp-crypto",
- "zhtp-zk",
-]
-
-[[package]]
-name = "zhtp-zk"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "bincode",
- "num_cpus",
- "serde",
- "tracing",
- "zhtp-crypto",
 ]

@@ -1,7 +1,7 @@
 //! Transaction management module
 //!
 //! Handles transaction structures, creation, validation, hashing, and signing.
-//! Identity transactions delegate processing to zhtp-identity package.
+//! Identity transactions delegate processing to lib-identity package.
 
 pub mod core;
 pub mod creation;

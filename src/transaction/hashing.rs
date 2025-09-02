@@ -131,7 +131,7 @@ pub fn create_encrypted_note(
     let recipient_keypair = KeyPair::generate()
         .map_err(|e| format!("Failed to create recipient keypair: {}", e))?;
     
-    // Encrypt the note using hybrid encryption (delegated to zhtp-crypto)
+    // Encrypt the note using hybrid encryption (delegated to lib-crypto)
     let encrypted_note = crate::integration::crypto_integration::hybrid_encrypt(&note_data, &recipient_keypair.public_key)
         .map_err(|e| format!("Note encryption failed: {}", e))?;
     

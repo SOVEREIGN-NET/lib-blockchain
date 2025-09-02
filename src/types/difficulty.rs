@@ -1,7 +1,7 @@
 //! Difficulty calculation and proof-of-work utilities
 //!
 //! Provides basic difficulty calculation for proof-of-work mining.
-//! Advanced consensus mechanisms are handled by zhtp-consensus package.
+//! Advanced consensus mechanisms are handled by lib-consensus package.
 
 use crate::types::Hash;
 use serde::{Serialize, Deserialize};

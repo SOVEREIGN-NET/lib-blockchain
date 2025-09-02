@@ -2,10 +2,10 @@
 //!
 //! Tests transaction creation, validation, hashing, and signing functionality.
 
-use zhtp_blockchain::*;
-use zhtp_blockchain::transaction::*;
-use zhtp_blockchain::types::*;
-use zhtp_blockchain::integration::*;
+use lib_blockchain::*;
+use lib_blockchain::transaction::*;
+use lib_blockchain::types::*;
+use lib_blockchain::integration::*;
 use anyhow::Result;
 
 #[test]
@@ -268,7 +268,7 @@ fn test_transaction_builder() -> Result<()> {
     );
     
     // Create a keypair for signing
-    let keypair = zhtp_crypto::KeyPair::generate()?;
+    let keypair = lib_crypto::KeyPair::generate()?;
     
     // Use the transaction builder
     let transaction = creation::TransactionBuilder::new()

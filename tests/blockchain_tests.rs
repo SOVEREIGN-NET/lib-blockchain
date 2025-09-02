@@ -3,13 +3,13 @@
 //! Tests the core blockchain functionality including block addition,
 //! transaction validation, identity management, and consensus.
 
-use zhtp_blockchain::*;
-use zhtp_blockchain::blockchain::*;
-use zhtp_blockchain::transaction::*;
-use zhtp_blockchain::block::*;
-use zhtp_blockchain::types::*;
-use zhtp_blockchain::integration::*;
-use zhtp_blockchain::integration::crypto_integration::{Signature, PublicKey, SignatureAlgorithm};
+use lib_blockchain::*;
+use lib_blockchain::blockchain::*;
+use lib_blockchain::transaction::*;
+use lib_blockchain::block::*;
+use lib_blockchain::types::*;
+use lib_blockchain::integration::*;
+use lib_blockchain::integration::crypto_integration::{Signature, PublicKey, SignatureAlgorithm};
 use anyhow::Result;
 
 // Helper function to create a simple valid transaction for testing

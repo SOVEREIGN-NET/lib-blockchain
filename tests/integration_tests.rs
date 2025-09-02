@@ -1,19 +1,19 @@
 //! Integration tests for ZHTP blockchain package
 //!
 //! Tests the integration between blockchain components and external packages
-//! (zhtp-crypto, zhtp-zk, zhtp-identity).
+//! (lib-crypto, lib-proofs, lib-identity).
 
-use zhtp_blockchain::*;
-use zhtp_blockchain::integration::*;
-use zhtp_blockchain::blockchain::*;
-use zhtp_blockchain::transaction::*;
-use zhtp_blockchain::types::*;
+use lib_blockchain::*;
+use lib_blockchain::integration::*;
+use lib_blockchain::blockchain::*;
+use lib_blockchain::transaction::*;
+use lib_blockchain::types::*;
 use anyhow::Result;
 
 #[test]
 fn test_crypto_integration() -> Result<()> {
     // Test keypair generation
-    let keypair = zhtp_crypto::KeyPair::generate()?;
+    let keypair = lib_crypto::KeyPair::generate()?;
     assert!(!keypair.public_key.dilithium_pk.is_empty());
     assert!(!keypair.private_key.dilithium_sk.is_empty());
     
@@ -36,7 +36,7 @@ fn test_crypto_integration() -> Result<()> {
 #[test]
 fn test_zk_integration() -> Result<()> {
     // Test ZK transaction proof generation
-    let proof_result = zk_integration::generate_zk_transaction_proof(
+    let proof_result = zk_integration::generate_proofs_transaction_proof(
         1000, // sender_balance
         500,  // receiver_balance
         100,  // amount
@@ -50,10 +50,10 @@ fn test_zk_integration() -> Result<()> {
         Ok(proof) => {
             println!("ZK proof generated successfully");
             
-            // Verify the proof structure - this might fail if zhtp-zk isn't fully implemented
+            // Verify the proof structure - this might fail if lib-proofs isn't fully implemented
             let structure_valid = zk_integration::is_valid_proof_structure(&proof);
             if !structure_valid {
-                println!("Warning: ZK proof structure validation failed - this may be expected if zhtp-zk is not fully implemented");
+                println!("Warning: ZK proof structure validation failed - this may be expected if lib-proofs is not fully implemented");
                 return Ok(()); // Skip remaining tests if structure is invalid
             }
             
@@ -72,7 +72,7 @@ fn test_zk_integration() -> Result<()> {
             }
         },
         Err(e) => {
-            println!("ZK proof generation failed: {} - this may be expected if zhtp-zk is not fully implemented", e);
+            println!("ZK proof generation failed: {} - this may be expected if lib-proofs is not fully implemented", e);
             // This is acceptable for integration tests when the ZK system isn't fully implemented
         }
     }
@@ -281,7 +281,7 @@ fn test_zk_identity_proof_integration() -> Result<()> {
         public_key,
     );
     
-    // Note: This might fail if zhtp-zk is not fully initialized, which is expected
+    // Note: This might fail if lib-proofs is not fully initialized, which is expected
     // We're testing the integration interface exists
     assert!(identity_proof_result.is_ok() || identity_proof_result.is_err());
     

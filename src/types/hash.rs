@@ -1,7 +1,7 @@
 //! Hash utilities for blockchain
 //!
 //! Provides hash computation and verification utilities used throughout
-//! the blockchain implementation. Integrates with zhtp-crypto for hashing.
+//! the blockchain implementation. Integrates with lib-crypto for hashing.
 
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
@@ -100,9 +100,9 @@ impl std::fmt::Display for Hash {
     }
 }
 
-/// Hash a byte slice using Blake3 (via zhtp-crypto integration)
+/// Hash a byte slice using Blake3 (via lib-crypto integration)
 pub fn blake3_hash(data: &[u8]) -> Hash {
-    // This integrates with zhtp-crypto package
+    // This integrates with lib-crypto package
     let hash_bytes = crate::integration::crypto_integration::hash_data(data);
     Hash::new(hash_bytes)
 }
