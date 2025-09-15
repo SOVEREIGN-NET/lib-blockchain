@@ -3,11 +3,12 @@
 //! Manages transactions waiting to be included in blocks.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use serde::{Serialize, Deserialize};
 use crate::types::Hash;
 use crate::transaction::{Transaction, ValidationError};
 
 /// Transaction memory pool
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mempool {
     /// Pending transactions by hash
     transactions: HashMap<Hash, Transaction>,

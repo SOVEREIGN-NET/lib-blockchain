@@ -9,9 +9,8 @@ use serde::{Serialize, Deserialize};
 
 // Import types from both packages
 pub use lib_proofs::{
-    ZkTransactionProver, 
+    ZkTransactionProof, 
     ZkProofSystem,
-    ZkTransactionProof,
     ZkIdentityProof,
     ZkProof,
     initialize_zk_system,
@@ -115,8 +114,8 @@ impl EnhancedTransactionValidator {
     fn validate_input_zk_proof(&self, input: &TransactionInput, input_index: usize) -> Result<bool> {
         let zk_proof = &input.zk_proof;
         
-        // Use ZkTransactionProver for verification
-        match ZkTransactionProver::verify_transaction(zk_proof) {
+        // Use ZkTransactionProof for verification
+        match ZkTransactionProof::verify_transaction(zk_proof) {
             Ok(is_valid) => {
                 if !is_valid {
                     return Err(anyhow::anyhow!(
@@ -334,7 +333,7 @@ impl EnhancedTransactionCreator {
         nullifier_secret_array.copy_from_slice(&nullifier_secret[..32]);
         
         // Generate ZK proof using lib-proofs
-        let zk_proof = ZkTransactionProver::prove_transaction(
+        let zk_proof = ZkTransactionProof::prove_transaction(
             sender_balance,
             0, // receiver_balance (not needed for creation)
             amount,

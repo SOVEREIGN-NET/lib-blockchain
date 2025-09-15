@@ -161,7 +161,7 @@ impl TransactionBuilder {
     
     /// Generate ZK proofs for all transaction inputs using lib-proofs
     fn generate_zk_proofs_for_inputs(&self, private_key: &PrivateKey) -> Result<Vec<TransactionInput>, TransactionCreateError> {
-        use lib_proofs::ZkTransactionProver;
+        use lib_proofs::ZkTransactionProof;
         use lib_crypto::random::generate_nonce;
         
         let mut inputs_with_proofs = Vec::with_capacity(self.inputs.len());
@@ -181,7 +181,7 @@ impl TransactionBuilder {
             let estimated_sender_balance = self.fee + 1000; // Ensure sufficient balance for fee
             
             // Generate ZK proof for this input
-            let zk_proof = match ZkTransactionProver::prove_transaction(
+            let zk_proof = match ZkTransactionProof::prove_transaction(
                 estimated_sender_balance, // sender_balance
                 0,                       // receiver_balance (not needed for inputs)
                 100,                     // amount (estimated)

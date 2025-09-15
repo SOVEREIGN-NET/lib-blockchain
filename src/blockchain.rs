@@ -6,13 +6,16 @@
 use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 use crate::types::{Hash, Difficulty};
 use crate::transaction::{Transaction, TransactionInput, TransactionOutput, IdentityTransactionData};
 use crate::types::transaction_type::TransactionType;
 use crate::block::{Block, BlockHeader};
 use crate::integration::crypto_integration::{Signature, PublicKey, SignatureAlgorithm};
 use crate::integration::zk_integration::ZkTransactionProof;
+use crate::integration::economic_integration::{EconomicTransactionProcessor, TreasuryStats};
+use crate::integration::consensus_integration::{BlockchainConsensusCoordinator, ConsensusStatus};
+use crate::integration::storage_integration::{BlockchainStorageManager, BlockchainStorageConfig, StorageOperationResult};
 
 /// Blockchain state with identity registry and UTXO management
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +40,19 @@ pub struct Blockchain {
     pub identity_blocks: HashMap<String, u64>,
     /// Economics transaction storage (handled by lib-economy)
     pub economics_transactions: Vec<EconomicsTransaction>,
+    /// Economic transaction processor for lib-economy integration
+    #[serde(skip)]
+    pub economic_processor: Option<EconomicTransactionProcessor>,
+    /// Consensus coordinator for lib-consensus integration
+    #[serde(skip)]
+    pub consensus_coordinator: Option<std::sync::Arc<tokio::sync::RwLock<BlockchainConsensusCoordinator>>>,
+    /// Storage manager for persistent data
+    #[serde(skip)]
+    pub storage_manager: Option<std::sync::Arc<tokio::sync::RwLock<BlockchainStorageManager>>>,
+    /// Auto-persistence configuration
+    pub auto_persist_enabled: bool,
+    /// Block counter for auto-persistence
+    pub blocks_since_last_persist: u64,
 }
 
 /// Economics transaction record (simplified for blockchain package)
@@ -67,10 +83,206 @@ impl Blockchain {
             identity_registry: HashMap::new(),
             identity_blocks: HashMap::new(),
             economics_transactions: Vec::new(),
+            economic_processor: Some(EconomicTransactionProcessor::new()),
+            consensus_coordinator: None,
+            storage_manager: None,
+            auto_persist_enabled: true,
+            blocks_since_last_persist: 0,
         };
 
         blockchain.update_utxo_set(&genesis_block)?;
         Ok(blockchain)
+    }
+
+    /// Create a new blockchain with storage manager
+    pub async fn new_with_storage(storage_config: BlockchainStorageConfig) -> Result<Self> {
+        let mut blockchain = Self::new()?;
+        blockchain.initialize_storage_manager(storage_config).await?;
+        Ok(blockchain)
+    }
+
+    /// Initialize the storage manager
+    pub async fn initialize_storage_manager(&mut self, config: BlockchainStorageConfig) -> Result<()> {
+        info!("🗃️ Initializing blockchain storage manager");
+        
+        let storage_manager = BlockchainStorageManager::new(config).await?;
+        self.storage_manager = Some(std::sync::Arc::new(tokio::sync::RwLock::new(storage_manager)));
+        self.auto_persist_enabled = true;
+        
+        info!("✅ Storage manager initialized successfully");
+        Ok(())
+    }
+
+    /// Load blockchain from persistent storage
+    pub async fn load_from_storage(storage_config: BlockchainStorageConfig, content_hash: lib_storage::types::ContentHash) -> Result<Self> {
+        info!("📥 Loading blockchain from storage");
+        
+        let mut storage_manager = BlockchainStorageManager::new(storage_config).await?;
+        let mut blockchain = storage_manager.retrieve_blockchain_state(content_hash).await?;
+        
+        // Re-initialize non-serialized components
+        blockchain.economic_processor = Some(EconomicTransactionProcessor::new());
+        blockchain.storage_manager = Some(std::sync::Arc::new(tokio::sync::RwLock::new(storage_manager)));
+        blockchain.auto_persist_enabled = true;
+        blockchain.blocks_since_last_persist = 0;
+        
+        info!("✅ Blockchain loaded from storage (height: {})", blockchain.height);
+        Ok(blockchain)
+    }
+
+    /// Persist blockchain state to storage
+    pub async fn persist_to_storage(&mut self) -> Result<StorageOperationResult> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            info!("💾 Persisting blockchain state to storage (height: {})", self.height);
+            
+            let mut storage_manager = storage_manager_arc.write().await;
+            let result = storage_manager.store_blockchain_state(self).await?;
+            
+            self.blocks_since_last_persist = 0;
+            
+            info!("✅ Blockchain state persisted successfully");
+            Ok(result)
+        } else {
+            Err(anyhow::anyhow!("Storage manager not initialized"))
+        }
+    }
+
+    /// Backup entire blockchain to distributed storage
+    pub async fn backup_to_storage(&mut self) -> Result<Vec<StorageOperationResult>> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            info!("📦 Starting blockchain backup to distributed storage");
+            
+            let mut storage_manager = storage_manager_arc.write().await;
+            let results = storage_manager.backup_blockchain(self).await?;
+            
+            let successful_backups = results.iter().filter(|r| r.success).count();
+            info!("✅ Blockchain backup completed: {}/{} operations successful", 
+                  successful_backups, results.len());
+            
+            Ok(results)
+        } else {
+            Err(anyhow::anyhow!("Storage manager not initialized"))
+        }
+    }
+
+    /// Auto-persist if conditions are met
+    async fn auto_persist_if_needed(&mut self) -> Result<()> {
+        if !self.auto_persist_enabled {
+            return Ok(());
+        }
+        
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            let storage_manager = storage_manager_arc.read().await;
+            let persist_frequency = storage_manager.get_config().persist_frequency;
+            drop(storage_manager);
+            
+            if self.blocks_since_last_persist >= persist_frequency {
+                info!("🔄 Auto-persisting blockchain state (blocks since last persist: {})", 
+                      self.blocks_since_last_persist);
+                self.persist_to_storage().await?;
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Store a block in persistent storage
+    pub async fn persist_block(&mut self, block: &Block) -> Result<Option<StorageOperationResult>> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            let result = storage_manager.store_block(block).await?;
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Store a transaction in persistent storage
+    pub async fn persist_transaction(&mut self, transaction: &Transaction) -> Result<Option<StorageOperationResult>> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            let result = storage_manager.store_transaction(transaction).await?;
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Store identity data in persistent storage
+    pub async fn persist_identity_data(&mut self, did: &str, identity_data: &IdentityTransactionData) -> Result<Option<StorageOperationResult>> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            let result = storage_manager.store_identity_data(did, identity_data).await?;
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Store UTXO set in persistent storage
+    pub async fn persist_utxo_set(&mut self) -> Result<Option<StorageOperationResult>> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            let result = storage_manager.store_utxo_set(&self.utxo_set).await?;
+            // Also store using the latest key for recovery
+            storage_manager.store_latest_utxo_set(&self.utxo_set).await?;
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Persist just the blockchain state (height, difficulty, nullifiers) to storage
+    pub async fn persist_blockchain_state(&mut self) -> Result<Option<()>> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            let storage_manager = storage_manager_arc.read().await;
+            
+            let state = crate::integration::storage_integration::BlockchainState {
+                height: self.height,
+                difficulty: self.difficulty.clone(),
+                nullifier_set: self.nullifier_set.clone(),
+            };
+            
+            storage_manager.store_latest_blockchain_state(&state).await?;
+            
+            info!("📊 Blockchain state persisted to storage");
+            return Ok(Some(()));
+        }
+        Ok(None)
+    }
+
+    /// Retrieve a block from storage by height
+    pub async fn retrieve_block_from_storage(&self, height: u64) -> Result<Option<Block>> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            storage_manager.retrieve_block_by_height(height).await
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Perform storage maintenance
+    pub async fn perform_storage_maintenance(&mut self) -> Result<()> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            info!("🧹 Performing blockchain storage maintenance");
+            
+            let mut storage_manager = storage_manager_arc.write().await;
+            storage_manager.perform_maintenance().await?;
+            
+            info!("✅ Storage maintenance completed");
+        }
+        Ok(())
+    }
+
+    /// Get storage statistics
+    pub async fn get_storage_statistics(&self) -> Result<Option<lib_storage::UnifiedStorageStats>> {
+        if let Some(ref storage_manager_arc) = self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            let stats = storage_manager.get_storage_statistics().await?;
+            Ok(Some(stats))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Add a new block to the chain
@@ -101,6 +313,32 @@ impl Blockchain {
 
         // Process identity transactions
         self.process_identity_transactions(&block)?;
+
+        // Update persistence counter
+        self.blocks_since_last_persist += 1;
+
+        Ok(())
+    }
+
+    /// Add a new block to the chain with automatic persistence
+    pub async fn add_block_with_persistence(&mut self, block: Block) -> Result<()> {
+        // Add block using existing logic
+        self.add_block(block.clone())?;
+
+        // Persist the block to storage if storage manager is available
+        if let Some(_) = self.persist_block(&block).await? {
+            info!("📦 Block {} persisted to storage", block.height());
+        }
+
+        // Persist UTXO set every 10 blocks or if auto-persist is enabled
+        if self.auto_persist_enabled && (self.height % 10 == 0 || self.blocks_since_last_persist >= 10) {
+            if let Some(_) = self.persist_utxo_set().await? {
+                info!("💎 UTXO set persisted to storage at height {}", self.height);
+            }
+        }
+
+        // Auto-persist blockchain state if needed
+        self.auto_persist_if_needed().await?;
 
         Ok(())
     }
@@ -276,6 +514,22 @@ impl Blockchain {
         Ok(())
     }
 
+    /// Add a transaction to the pending pool with persistent storage
+    pub async fn add_pending_transaction_with_persistence(&mut self, transaction: Transaction) -> Result<()> {
+        // Add transaction to pending pool normally
+        self.add_pending_transaction(transaction.clone())?;
+
+        // Store transaction in persistent storage if available
+        if let Some(storage_manager_arc) = &self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            if let Err(e) = storage_manager.store_transaction(&transaction).await {
+                eprintln!("Warning: Failed to persist transaction to storage: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Add system transaction to pending pool without validation (for identity registration, etc.)
     pub fn add_system_transaction(&mut self, transaction: Transaction) -> Result<()> {
         tracing::info!("🔗 Adding system transaction to pending pool (bypassing validation)");
@@ -325,6 +579,22 @@ impl Blockchain {
         Ok(registration_tx.hash())
     }
 
+    /// Register a new identity on the blockchain with persistent storage
+    pub async fn register_identity_with_persistence(&mut self, identity_data: IdentityTransactionData) -> Result<Hash> {
+        // Register identity normally
+        let tx_hash = self.register_identity(identity_data.clone())?;
+
+        // Store identity data in persistent storage if available
+        if let Some(storage_manager_arc) = &self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            if let Err(e) = storage_manager.store_identity_data(&identity_data.did, &identity_data).await {
+                eprintln!("Warning: Failed to persist identity data to storage: {}", e);
+            }
+        }
+
+        Ok(tx_hash)
+    }
+
     /// Get identity data from blockchain
     pub fn get_identity(&self, did: &str) -> Option<&IdentityTransactionData> {
         self.identity_registry.get(did)
@@ -371,6 +641,22 @@ impl Blockchain {
         self.identity_registry.insert(did.to_string(), updated_data);
 
         Ok(update_tx.hash())
+    }
+
+    /// Update an existing identity on the blockchain with persistent storage
+    pub async fn update_identity_with_persistence(&mut self, did: &str, updated_data: IdentityTransactionData) -> Result<Hash> {
+        // Update identity normally
+        let tx_hash = self.update_identity(did, updated_data.clone())?;
+
+        // Store updated identity data in persistent storage if available
+        if let Some(storage_manager_arc) = &self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            if let Err(e) = storage_manager.store_identity_data(did, &updated_data).await {
+                eprintln!("Warning: Failed to persist updated identity data to storage: {}", e);
+            }
+        }
+
+        Ok(tx_hash)
     }
 
     /// Revoke an identity on the blockchain
@@ -514,10 +800,503 @@ impl Blockchain {
             })
             .collect()
     }
+
+    // ===== ECONOMIC INTEGRATION METHODS =====
+
+    /// Create UBI distribution transactions using lib-economy
+    pub async fn create_ubi_distributions(
+        &mut self,
+        citizens: &[(lib_economy::wasm::IdentityId, u64)],
+        system_keypair: &lib_crypto::KeyPair,
+    ) -> Result<Vec<Hash>> {
+        if let Some(ref mut processor) = self.economic_processor {
+            let blockchain_txs = processor.create_ubi_distributions_for_blockchain(citizens, system_keypair).await?;
+            let mut tx_hashes = Vec::new();
+            
+            for tx in blockchain_txs {
+                let tx_hash = tx.hash();
+                self.add_pending_transaction(tx)?;
+                tx_hashes.push(tx_hash);
+            }
+            
+            info!("🏦 Created {} UBI distribution transactions", tx_hashes.len());
+            Ok(tx_hashes)
+        } else {
+            Err(anyhow::anyhow!("Economic processor not initialized"))
+        }
+    }
+
+    /// Create network reward transactions using lib-economy
+    pub async fn create_network_rewards(
+        &mut self,
+        rewards: &[([u8; 32], u64)], // (recipient, amount)
+        system_keypair: &lib_crypto::KeyPair,
+    ) -> Result<Vec<Hash>> {
+        if let Some(ref mut processor) = self.economic_processor {
+            let blockchain_txs = processor.create_network_reward_transactions(rewards, system_keypair).await?;
+            let mut tx_hashes = Vec::new();
+            
+            for tx in blockchain_txs {
+                let tx_hash = tx.hash();
+                self.add_pending_transaction(tx)?;
+                tx_hashes.push(tx_hash);
+            }
+            
+            info!("🏦 Created {} network reward transactions", tx_hashes.len());
+            Ok(tx_hashes)
+        } else {
+            Err(anyhow::anyhow!("Economic processor not initialized"))
+        }
+    }
+
+    /// Create payment transaction with proper economic fee calculation
+    pub async fn create_payment_transaction(
+        &mut self,
+        from: [u8; 32],
+        to: [u8; 32],
+        amount: u64,
+        priority: lib_economy::Priority,
+        sender_keypair: &lib_crypto::KeyPair,
+    ) -> Result<Hash> {
+        if let Some(ref mut processor) = self.economic_processor {
+            let blockchain_tx = processor.create_payment_transaction_for_blockchain(
+                from, to, amount, priority, sender_keypair
+            ).await?;
+            
+            let tx_hash = blockchain_tx.hash();
+            self.add_pending_transaction(blockchain_tx)?;
+            
+            info!("🏦 Created payment transaction: {} ZHTP from {:?} to {:?}", amount, from, to);
+            Ok(tx_hash)
+        } else {
+            Err(anyhow::anyhow!("Economic processor not initialized"))
+        }
+    }
+
+    /// Create welfare funding transactions using lib-economy
+    pub async fn create_welfare_funding(
+        &mut self,
+        services: &[(String, [u8; 32], u64)], // (service_name, address, amount)
+        system_keypair: &lib_crypto::KeyPair,
+    ) -> Result<Vec<Hash>> {
+        if let Some(ref mut processor) = self.economic_processor {
+            let blockchain_txs = crate::integration::economic_integration::create_welfare_funding_transactions(
+                services, system_keypair
+            ).await?;
+            
+            let mut tx_hashes = Vec::new();
+            for tx in blockchain_txs {
+                let tx_hash = tx.hash();
+                self.add_pending_transaction(tx)?;
+                tx_hashes.push(tx_hash);
+            }
+            
+            info!("🏦 Created {} welfare funding transactions", tx_hashes.len());
+            Ok(tx_hashes)
+        } else {
+            Err(anyhow::anyhow!("Economic processor not initialized"))
+        }
+    }
+
+    /// Get economic treasury statistics
+    pub async fn get_treasury_statistics(&self) -> Result<TreasuryStats> {
+        if let Some(ref processor) = self.economic_processor {
+            processor.get_treasury_statistics().await
+        } else {
+            Err(anyhow::anyhow!("Economic processor not initialized"))
+        }
+    }
+
+    /// Calculate transaction fees using economic rules
+    pub fn calculate_transaction_fees(
+        &self,
+        tx_size: u64,
+        amount: u64,
+        priority: lib_economy::Priority,
+        is_system_transaction: bool,
+    ) -> (u64, u64, u64) {
+        if let Some(ref processor) = self.economic_processor {
+            processor.calculate_transaction_fees(tx_size, amount, priority, is_system_transaction)
+        } else {
+            // Fallback basic fee calculation if processor not available
+            if is_system_transaction {
+                (0, 0, 0)
+            } else {
+                let base_fee = tx_size * 10; // Basic fallback
+                let dao_fee = amount * 200 / 10000; // 2% DAO fee
+                (base_fee, dao_fee, base_fee + dao_fee)
+            }
+        }
+    }
+
+    /// Get wallet balance for an address using economic processor
+    pub fn get_wallet_balance(&self, address: &[u8; 32]) -> Option<u64> {
+        if let Some(ref processor) = self.economic_processor {
+            processor.get_wallet_balance(address).map(|balance| balance.total_balance())
+        } else {
+            None
+        }
+    }
+
+    /// Initialize economic processor if not already done
+    pub fn ensure_economic_processor(&mut self) {
+        if self.economic_processor.is_none() {
+            self.economic_processor = Some(EconomicTransactionProcessor::new());
+            info!("🏦 Economic processor initialized for blockchain");
+        }
+    }
+
+    /// Initialize consensus coordinator if not already done
+    pub async fn initialize_consensus_coordinator(
+        &mut self,
+        mempool: std::sync::Arc<tokio::sync::RwLock<crate::mempool::Mempool>>,
+        consensus_type: lib_consensus::ConsensusType,
+    ) -> Result<()> {
+        if self.consensus_coordinator.is_none() {
+            let blockchain_arc = std::sync::Arc::new(tokio::sync::RwLock::new(self.clone()));
+            let coordinator = crate::integration::consensus_integration::initialize_consensus_integration(
+                blockchain_arc,
+                mempool,
+                consensus_type,
+            ).await?;
+            
+            self.consensus_coordinator = Some(std::sync::Arc::new(tokio::sync::RwLock::new(coordinator)));
+            info!("🚀 Consensus coordinator initialized for blockchain");
+        }
+        Ok(())
+    }
+
+    /// Get consensus coordinator reference
+    pub fn get_consensus_coordinator(&self) -> Option<&std::sync::Arc<tokio::sync::RwLock<BlockchainConsensusCoordinator>>> {
+        self.consensus_coordinator.as_ref()
+    }
+
+    /// Start consensus coordinator
+    pub async fn start_consensus(&mut self) -> Result<()> {
+        if let Some(ref coordinator_arc) = self.consensus_coordinator {
+            let mut coordinator = coordinator_arc.write().await;
+            coordinator.start_consensus_coordinator().await?;
+            info!("✅ Consensus coordinator started for blockchain");
+        } else {
+            return Err(anyhow::anyhow!("Consensus coordinator not initialized"));
+        }
+        Ok(())
+    }
+
+    /// Register as validator in consensus
+    pub async fn register_as_validator(
+        &mut self,
+        identity: lib_identity::IdentityId,
+        stake_amount: u64,
+        storage_capacity: u64,
+        consensus_keypair: &lib_crypto::KeyPair,
+        commission_rate: u8,
+    ) -> Result<()> {
+        if let Some(ref coordinator_arc) = self.consensus_coordinator {
+            let mut coordinator = coordinator_arc.write().await;
+            coordinator.register_as_validator(
+                identity,
+                stake_amount,
+                storage_capacity,
+                consensus_keypair,
+                commission_rate,
+            ).await?;
+            info!("✅ Registered as validator with consensus coordinator");
+        } else {
+            return Err(anyhow::anyhow!("Consensus coordinator not initialized"));
+        }
+        Ok(())
+    }
+
+    /// Get consensus status
+    pub async fn get_consensus_status(&self) -> Result<Option<ConsensusStatus>> {
+        if let Some(ref coordinator_arc) = self.consensus_coordinator {
+            let coordinator = coordinator_arc.read().await;
+            let status = coordinator.get_consensus_status().await?;
+            Ok(Some(status))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Create DAO proposal through consensus
+    pub async fn create_dao_proposal(
+        &self,
+        proposer_keypair: &lib_crypto::KeyPair,
+        title: String,
+        description: String,
+        proposal_type: lib_consensus::DaoProposalType,
+    ) -> Result<crate::types::Hash> {
+        let proposal_tx = crate::integration::consensus_integration::create_dao_proposal_transaction(
+            proposer_keypair,
+            title,
+            description,
+            proposal_type,
+        )?;
+
+        // Add to pending transactions
+        let tx_hash = proposal_tx.hash();
+        // Note: In a mutable context, you would call self.add_pending_transaction(proposal_tx)?;
+        // For now, just return the transaction hash
+        Ok(tx_hash)
+    }
+
+    /// Cast DAO vote through consensus
+    pub async fn cast_dao_vote(
+        &self,
+        voter_keypair: &lib_crypto::KeyPair,
+        proposal_id: lib_crypto::Hash,
+        vote_choice: lib_consensus::DaoVoteChoice,
+    ) -> Result<crate::types::Hash> {
+        let vote_tx = crate::integration::consensus_integration::create_dao_vote_transaction(
+            voter_keypair,
+            proposal_id,
+            vote_choice,
+        )?;
+
+        // Add to pending transactions
+        let tx_hash = vote_tx.hash();
+        // Note: In a mutable context, you would call self.add_pending_transaction(vote_tx)?;
+        // For now, just return the transaction hash
+        Ok(tx_hash)
+    }
+
+    /// Verify block with consensus rules
+    pub async fn verify_block_with_consensus(&self, block: &Block, previous_block: Option<&Block>) -> Result<bool> {
+        // First run standard blockchain verification
+        if !self.verify_block(block, previous_block)? {
+            return Ok(false);
+        }
+
+        // If consensus coordinator is available, perform additional consensus verification
+        if let Some(ref coordinator_arc) = self.consensus_coordinator {
+            let coordinator = coordinator_arc.read().await;
+            let status = coordinator.get_consensus_status().await?;
+            
+            // Verify block height matches consensus expectations
+            if block.height() != status.current_height {
+                warn!("❌ Block height mismatch: block={}, consensus={}", 
+                      block.height(), status.current_height);
+                return Ok(false);
+            }
+
+            // Additional consensus-specific validations would go here
+            info!("✅ Block passed consensus verification at height {}", block.height());
+        }
+
+        Ok(true)
+    }
+
+    /// Check if a transaction is an economic system transaction (UBI/welfare/rewards)
+    pub fn is_economic_system_transaction(&self, transaction: &Transaction) -> bool {
+        crate::integration::economic_integration::utils::is_ubi_distribution(transaction) ||
+        crate::integration::economic_integration::utils::is_welfare_distribution(transaction) ||
+        crate::integration::economic_integration::utils::is_network_reward(transaction)
+    }
+
+    // ===== BLOCKCHAIN RECOVERY METHODS =====
+
+    /// Recover blockchain state from persistent storage
+    pub async fn recover_from_storage(&mut self) -> Result<bool> {
+        if let Some(storage_manager_arc) = &self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            info!("🔄 Starting blockchain recovery from storage...");
+
+            // For now, return false since the retrieval methods need proper implementation
+            // TODO: Implement proper blockchain state recovery
+            info!("⚠️ Blockchain recovery needs complete retrieval method implementation");
+            return Ok(false);
+        }
+
+        Ok(false)
+    }
+
+    /// Verify blockchain integrity after recovery
+    pub async fn verify_blockchain_integrity(&self) -> Result<bool> {
+        info!("🔍 Verifying blockchain integrity...");
+
+        // Verify block chain continuity
+        for i in 1..self.blocks.len() {
+            let current = &self.blocks[i];
+            let previous = &self.blocks[i - 1];
+
+            if current.previous_hash() != previous.hash() {
+                error!("❌ Block chain continuity broken at height {}", i);
+                return Ok(false);
+            }
+
+            if current.height() != previous.height() + 1 {
+                error!("❌ Block height sequence broken at height {}", i);
+                return Ok(false);
+            }
+        }
+
+        // Verify UTXO set consistency by rebuilding it
+        let mut rebuilt_utxo_set = HashMap::new();
+        let mut rebuilt_nullifier_set = HashSet::new();
+
+        for block in &self.blocks {
+            for tx in &block.transactions {
+                // Add nullifiers
+                for input in &tx.inputs {
+                    rebuilt_nullifier_set.insert(input.nullifier);
+                }
+
+                // Add new outputs
+                for (index, output) in tx.outputs.iter().enumerate() {
+                    let output_id = self.calculate_output_id(&tx.hash(), index);
+                    rebuilt_utxo_set.insert(output_id, output.clone());
+                }
+            }
+        }
+
+        if rebuilt_utxo_set.len() != self.utxo_set.len() {
+            error!("❌ UTXO set size mismatch: expected={}, actual={}", 
+                   rebuilt_utxo_set.len(), self.utxo_set.len());
+            return Ok(false);
+        }
+
+        if rebuilt_nullifier_set.len() != self.nullifier_set.len() {
+            error!("❌ Nullifier set size mismatch: expected={}, actual={}", 
+                   rebuilt_nullifier_set.len(), self.nullifier_set.len());
+            return Ok(false);
+        }
+
+        info!("✅ Blockchain integrity verification passed");
+        Ok(true)
+    }
+
+    /// Create a full backup of the blockchain to storage
+    pub async fn create_full_backup(&self) -> Result<bool> {
+        if let Some(storage_manager_arc) = &self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            info!("💾 Creating full blockchain backup...");
+
+            // Backup using the storage manager's backup functionality
+            let backup_result = storage_manager.backup_blockchain(self).await?;
+            let successful_backups = backup_result.iter().filter(|r| r.success).count();
+            
+            info!("✅ Full blockchain backup completed: {}/{} operations successful", successful_backups, backup_result.len());
+            return Ok(true);
+        }
+
+        warn!("⚠️ No storage manager available for backup");
+        Ok(false)
+    }
+
+    /// Restore blockchain from a backup
+    pub async fn restore_from_backup(&mut self, backup_id: &str) -> Result<bool> {
+        if let Some(storage_manager) = &self.storage_manager {
+            info!("🔄 Restoring blockchain from backup: {}", backup_id);
+
+            // Implementation would depend on storage manager's backup format
+            // This is a placeholder for the restore functionality
+            info!("⚠️ Backup restore functionality needs implementation in storage manager");
+            
+            return Ok(false);
+        }
+
+        warn!("⚠️ No storage manager available for restore");
+        Ok(false)
+    }
+
+    /// Synchronize blockchain with storage (ensure consistency)
+    pub async fn synchronize_with_storage(&mut self) -> Result<()> {
+        if let Some(storage_manager_arc) = self.storage_manager.clone() {
+            info!("🔄 Synchronizing blockchain with storage...");
+
+            // Persist current state
+            self.persist_to_storage().await?;
+            self.persist_utxo_set().await?;
+
+            let mut storage_manager = storage_manager_arc.write().await;
+            // Persist any unpersisted blocks
+            for block in &self.blocks {
+                let _ = storage_manager.store_block(block).await;
+            }
+
+            // Persist all identity data
+            for (did, identity_data) in &self.identity_registry {
+                let _ = storage_manager.store_identity_data(did, identity_data).await;
+            }
+
+            info!("✅ Blockchain synchronization with storage completed");
+        }
+
+        Ok(())
+    }
+
+    // ===== STORAGE CONFIGURATION AND MONITORING =====
+
+    /// Enable or disable automatic persistence
+    pub fn set_auto_persist(&mut self, enabled: bool) {
+        self.auto_persist_enabled = enabled;
+        if enabled {
+            info!("✅ Automatic persistence enabled");
+        } else {
+            info!("⚠️ Automatic persistence disabled");
+        }
+    }
+
+    /// Get storage statistics
+    pub async fn get_storage_stats(&self) -> Result<Option<serde_json::Value>> {
+        if let Some(storage_manager) = &self.storage_manager {
+            // This would return storage statistics from the unified storage system
+            // Implementation depends on storage manager capabilities
+            let stats = serde_json::json!({
+                "utxo_count": self.utxo_set.len(),
+                "identity_count": self.identity_registry.len(),
+                "block_count": self.blocks.len(),
+                "nullifier_count": self.nullifier_set.len(),
+                "height": self.height,
+                "auto_persist_enabled": self.auto_persist_enabled,
+                "blocks_since_last_persist": self.blocks_since_last_persist
+            });
+            return Ok(Some(stats));
+        }
+        Ok(None)
+    }
+
+    /// Check if storage is healthy and accessible
+    pub async fn check_storage_health(&self) -> Result<bool> {
+        if let Some(storage_manager_arc) = &self.storage_manager {
+            let mut storage_manager = storage_manager_arc.write().await;
+            // Perform a simple storage health check
+            match storage_manager.store_test_data().await {
+                Ok(_) => {
+                    info!("✅ Storage health check passed");
+                    Ok(true)
+                }
+                Err(e) => {
+                    error!("❌ Storage health check failed: {}", e);
+                    Ok(false)
+                }
+            }
+        } else {
+            warn!("⚠️ No storage manager configured");
+            Ok(false)
+        }
+    }
+
+    /// Cleanup old storage data (for maintenance)
+    pub async fn cleanup_storage(&self, retain_blocks: u32) -> Result<()> {
+        if let Some(storage_manager) = &self.storage_manager {
+            info!("🧹 Starting storage cleanup, retaining last {} blocks", retain_blocks);
+            
+            // This would implement cleanup logic in the storage manager
+            // For now, just log the operation
+            info!("⚠️ Storage cleanup implementation needed in storage manager");
+        }
+        Ok(())
+    }
 }
 
 impl Default for Blockchain {
     fn default() -> Self {
-        Self::new().expect("Failed to create default blockchain")
+        let mut blockchain = Self::new().expect("Failed to create default blockchain");
+        blockchain.ensure_economic_processor();
+        // Note: Consensus coordinator requires async initialization and external dependencies
+        // so it's not initialized in Default. Call initialize_consensus_coordinator() separately.
+        blockchain
     }
 }

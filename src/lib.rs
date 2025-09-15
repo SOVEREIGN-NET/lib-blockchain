@@ -8,8 +8,6 @@
 extern crate lib_crypto;
 extern crate lib_proofs;
 extern crate lib_identity;
-// Economics package integration available when feature enabled
-#[cfg(feature = "economics")]
 extern crate lib_economy;
 
 pub mod types;
@@ -19,6 +17,10 @@ pub mod blockchain;
 pub mod mempool;
 pub mod integration;
 pub mod utils;
+
+// Smart contracts submodule (feature-gated)
+#[cfg(feature = "contracts")]
+pub mod contracts;
 
 // Re-export core types for convenience
 pub use types::*;
@@ -35,6 +37,31 @@ pub use integration::enhanced_zk_crypto::{
     EnhancedConsensusValidator,
     TransactionSpec,
 };
+
+// Re-export economic integration
+pub use integration::economic_integration::{
+    EconomicTransactionProcessor,
+    TreasuryStats,
+    create_economic_processor,
+    create_welfare_funding_transactions,
+    validate_dao_fee_calculation,
+    calculate_minimum_blockchain_fee,
+    convert_economy_amount_to_blockchain,
+    convert_blockchain_amount_to_economy,
+};
+
+// Re-export consensus integration
+pub use integration::consensus_integration::{
+    BlockchainConsensusCoordinator,
+    ConsensusStatus,
+    initialize_consensus_integration,
+    create_dao_proposal_transaction,
+    create_dao_vote_transaction,
+};
+
+// Re-export contracts when feature is enabled
+#[cfg(feature = "contracts")]
+pub use contracts::*;
 
 /// ZHTP blockchain protocol version
 pub const BLOCKCHAIN_VERSION: u32 = 1;

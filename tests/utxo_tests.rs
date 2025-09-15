@@ -8,7 +8,7 @@ use lib_blockchain::transaction::*;
 use lib_blockchain::transaction::core::IdentityTransactionData;
 use lib_blockchain::block::*;
 use lib_blockchain::types::*;
-use lib_blockchain::integration::*;
+use lib_blockchain::integration::crypto_integration::{PublicKey, KeyPair, Signature, SignatureAlgorithm};
 use anyhow::Result;
 use std::collections::HashSet;
 
@@ -56,13 +56,13 @@ fn test_utxo_creation_and_tracking() -> Result<()> {
     let output1 = TransactionOutput::new(
         Hash::from_hex("1111111111111111111111111111111111111111111111111111111111111111")?,
         Hash::from_hex("2222222222222222222222222222222222222222222222222222222222222222")?,
-        crypto_integration::PublicKey::new(vec![1, 2, 3, 4]),
+        PublicKey::new(vec![1, 2, 3, 4]),
     );
     
     let output2 = TransactionOutput::new(
         Hash::from_hex("3333333333333333333333333333333333333333333333333333333333333333")?,
         Hash::from_hex("4444444444444444444444444444444444444444444444444444444444444444")?,
-        crypto_integration::PublicKey::new(vec![5, 6, 7, 8]),
+        PublicKey::new(vec![5, 6, 7, 8]),
     );
     
     let identity_data = IdentityTransactionData {
@@ -80,10 +80,10 @@ fn test_utxo_creation_and_tracking() -> Result<()> {
     let transaction = Transaction::new_identity_registration(
         identity_data,
         vec![output1, output2],
-        crypto_integration::Signature {
+        Signature {
             signature: vec![1, 2, 3],
-            public_key: crypto_integration::PublicKey::new(vec![4, 5, 6]),
-            algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+            public_key: PublicKey::new(vec![4, 5, 6]),
+            algorithm: SignatureAlgorithm::Dilithium5,
             timestamp: 12345,
         },
         "UTXO creation test".as_bytes().to_vec(),
@@ -103,7 +103,7 @@ fn test_utxo_creation_and_tracking() -> Result<()> {
         let mut data = Vec::new();
         data.extend_from_slice(tx_hash.as_bytes());
         data.extend_from_slice(&0usize.to_le_bytes());
-        types::hash::blake3_hash(&data)
+        lib_blockchain::types::hash::blake3_hash(&data)
     };
     
     assert!(blockchain.utxo_set.contains_key(&expected_output_id_0));
@@ -138,13 +138,13 @@ fn test_nullifier_tracking() -> Result<()> {
         vec![TransactionOutput::new(
             Hash::from_hex("1111111111111111111111111111111111111111111111111111111111111111")?,
             Hash::from_hex("2222222222222222222222222222222222222222222222222222222222222222")?,
-            crypto_integration::PublicKey::new(vec![7, 8, 9]),
+            PublicKey::new(vec![7, 8, 9]),
         )], // Need at least one output for Transfer transactions
         5000, // Increased fee to meet minimum requirement
-        crypto_integration::Signature {
+        Signature {
             signature: vec![1, 2, 3],
-            public_key: crypto_integration::PublicKey::new(vec![4, 5, 6]),
-            algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+            public_key: PublicKey::new(vec![4, 5, 6]),
+            algorithm: SignatureAlgorithm::Dilithium5,
             timestamp: 12345,
         },
         "Nullifier test".as_bytes().to_vec(),
@@ -185,13 +185,13 @@ fn test_double_spend_prevention() -> Result<()> {
         vec![TransactionOutput::new(
             Hash::from_hex("3333333333333333333333333333333333333333333333333333333333333333")?,
             Hash::from_hex("4444444444444444444444444444444444444444444444444444444444444444")?,
-            crypto_integration::PublicKey::new(vec![7, 8, 9]),
+            PublicKey::new(vec![7, 8, 9]),
         )], // Need at least one output for Transfer transactions
         5000, // Increased fee
-        crypto_integration::Signature {
+        Signature {
             signature: vec![1, 2, 3],
-            public_key: crypto_integration::PublicKey::new(vec![4, 5, 6]),
-            algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+            public_key: PublicKey::new(vec![4, 5, 6]),
+            algorithm: SignatureAlgorithm::Dilithium5,
             timestamp: 12345,
         },
         "First transaction".as_bytes().to_vec(),
@@ -217,13 +217,13 @@ fn test_double_spend_prevention() -> Result<()> {
         vec![TransactionOutput::new(
             Hash::from_hex("5555555555555555555555555555555555555555555555555555555555555555")?,
             Hash::from_hex("6666666666666666666666666666666666666666666666666666666666666666")?,
-            crypto_integration::PublicKey::new(vec![10, 11, 12]),
+            PublicKey::new(vec![10, 11, 12]),
         )], // Need at least one output for Transfer transactions
         5000, // Increased fee
-        crypto_integration::Signature {
+        Signature {
             signature: vec![7, 8, 9],
-            public_key: crypto_integration::PublicKey::new(vec![10, 11, 12]),
-            algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+            public_key: PublicKey::new(vec![10, 11, 12]),
+            algorithm: SignatureAlgorithm::Dilithium5,
             timestamp: 12346,
         },
         "Double spend attempt".as_bytes().to_vec(),
@@ -250,7 +250,7 @@ fn test_utxo_spending() -> Result<()> {
     let output = TransactionOutput::new(
         Hash::from_hex("1111111111111111111111111111111111111111111111111111111111111111")?,
         Hash::from_hex("2222222222222222222222222222222222222222222222222222222222222222")?,
-        crypto_integration::PublicKey::new(vec![1, 2, 3, 4]),
+        PublicKey::new(vec![1, 2, 3, 4]),
     );
     
     let identity_data = IdentityTransactionData {
@@ -268,10 +268,10 @@ fn test_utxo_spending() -> Result<()> {
     let creation_tx = Transaction::new_identity_registration(
         identity_data,
         vec![output],
-        crypto_integration::Signature {
+        Signature {
             signature: vec![1, 2, 3],
-            public_key: crypto_integration::PublicKey::new(vec![4, 5, 6]),
-            algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+            public_key: PublicKey::new(vec![4, 5, 6]),
+            algorithm: SignatureAlgorithm::Dilithium5,
             timestamp: 12345,
         },
         "UTXO creation".as_bytes().to_vec(),
@@ -298,17 +298,17 @@ fn test_utxo_spending() -> Result<()> {
     let new_output = TransactionOutput::new(
         Hash::from_hex("4444444444444444444444444444444444444444444444444444444444444444")?,
         Hash::from_hex("5555555555555555555555555555555555555555555555555555555555555555")?,
-        crypto_integration::PublicKey::new(vec![7, 8, 9, 10]),
+        PublicKey::new(vec![7, 8, 9, 10]),
     );
     
     let spending_tx = Transaction::new(
         vec![spending_input],
         vec![new_output],
         5000, // Increased fee
-        crypto_integration::Signature {
+        Signature {
             signature: vec![11, 12, 13],
-            public_key: crypto_integration::PublicKey::new(vec![14, 15, 16]),
-            algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+            public_key: PublicKey::new(vec![14, 15, 16]),
+            algorithm: SignatureAlgorithm::Dilithium5,
             timestamp: 12346,
         },
         "UTXO spending".as_bytes().to_vec(),
@@ -336,7 +336,7 @@ fn test_utxo_set_consistency() -> Result<()> {
         let output = TransactionOutput::new(
             Hash::from_hex(&format!("{:064x}", i))?,
             Hash::from_hex(&format!("{:064x}", i + 1000))?,
-            crypto_integration::PublicKey::new(vec![(i as u8), (i as u8) + 1, (i as u8) + 2]),
+            PublicKey::new(vec![(i as u8), (i as u8) + 1, (i as u8) + 2]),
         );
         
         let identity_data = IdentityTransactionData {
@@ -354,10 +354,10 @@ fn test_utxo_set_consistency() -> Result<()> {
         let transaction = Transaction::new_identity_registration(
             identity_data,
             vec![output],
-            crypto_integration::Signature {
+            Signature {
                 signature: vec![(i as u8), (i as u8) + 1, (i as u8) + 2],
-                public_key: crypto_integration::PublicKey::new(vec![(i as u8) + 3, (i as u8) + 4]),
-                algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+                public_key: PublicKey::new(vec![(i as u8) + 3, (i as u8) + 4]),
+                algorithm: SignatureAlgorithm::Dilithium5,
                 timestamp: 12345 + i as u64,
             },
             format!("Transaction {}", i).as_bytes().to_vec(),
@@ -368,7 +368,7 @@ fn test_utxo_set_consistency() -> Result<()> {
         let mut output_id_data = Vec::new();
         output_id_data.extend_from_slice(tx_hash.as_bytes());
         output_id_data.extend_from_slice(&0usize.to_le_bytes());
-        let expected_output_id = types::hash::blake3_hash(&output_id_data);
+        let expected_output_id = lib_blockchain::types::hash::blake3_hash(&output_id_data);
         expected_utxos.insert(expected_output_id);
         
         // Add to blockchain
@@ -414,13 +414,13 @@ fn test_large_nullifier_set() -> Result<()> {
         vec![TransactionOutput::new(
             Hash::from_hex("7777777777777777777777777777777777777777777777777777777777777777")?,
             Hash::from_hex("8888888888888888888888888888888888888888888888888888888888888888")?,
-            crypto_integration::PublicKey::new(vec![13, 14, 15]),
+            PublicKey::new(vec![13, 14, 15]),
         )], // Need at least one output for Transfer transactions
         5000, // Increased fee for large transaction
-        crypto_integration::Signature {
+        Signature {
             signature: vec![1, 2, 3, 4, 5],
-            public_key: crypto_integration::PublicKey::new(vec![6, 7, 8, 9]),
-            algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+            public_key: PublicKey::new(vec![6, 7, 8, 9]),
+            algorithm: SignatureAlgorithm::Dilithium5,
             timestamp: 12345,
         },
         "Large nullifier test".as_bytes().to_vec(),
@@ -450,7 +450,7 @@ fn test_mixed_transaction_block() -> Result<()> {
     let creation_output = TransactionOutput::new(
         Hash::from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")?,
         Hash::from_hex("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")?,
-        crypto_integration::PublicKey::new(vec![1, 2, 3]),
+        PublicKey::new(vec![1, 2, 3]),
     );
     
     let identity_data = IdentityTransactionData {
@@ -468,10 +468,10 @@ fn test_mixed_transaction_block() -> Result<()> {
     let creation_tx = Transaction::new_identity_registration(
         identity_data,
         vec![creation_output],
-        crypto_integration::Signature {
+        Signature {
             signature: vec![1, 2, 3],
-            public_key: crypto_integration::PublicKey::new(vec![4, 5, 6]),
-            algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+            public_key: PublicKey::new(vec![4, 5, 6]),
+            algorithm: SignatureAlgorithm::Dilithium5,
             timestamp: 12345,
         },
         "Creation".as_bytes().to_vec(),
@@ -488,17 +488,17 @@ fn test_mixed_transaction_block() -> Result<()> {
     let spending_output = TransactionOutput::new(
         Hash::from_hex("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")?,
         Hash::from_hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")?,
-        crypto_integration::PublicKey::new(vec![7, 8, 9]),
+        PublicKey::new(vec![7, 8, 9]),
     );
     
     let spending_tx = Transaction::new(
         vec![spending_input],
         vec![spending_output],
         5000, // Increased fee
-        crypto_integration::Signature {
+        Signature {
             signature: vec![10, 11, 12],
-            public_key: crypto_integration::PublicKey::new(vec![13, 14, 15]),
-            algorithm: crypto_integration::SignatureAlgorithm::Dilithium5,
+            public_key: PublicKey::new(vec![13, 14, 15]),
+            algorithm: SignatureAlgorithm::Dilithium5,
             timestamp: 12346,
         },
         "Spending".as_bytes().to_vec(),

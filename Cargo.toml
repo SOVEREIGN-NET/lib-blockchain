@@ -21,12 +21,30 @@ hex = "0.4"
 blake3 = "1.5"
 rand = "0.8"
 
-# Internal ZHTP dependencies
+# Additional dependencies for contracts
+chrono = { version = "0.4", features = ["serde"] }
+indexmap = "2.0"
+
+# Internal ZHTP dependencies (Foundation Layer Only)
 lib-crypto = { path = "../lib-crypto" }
 lib-proofs = { path = "../lib-proofs" }
 lib-identity = { path = "../lib-identity" }
-# lib-economy = { path = "../lib-economy" }  # TODO: Add when package is created
+lib-storage = { path = "../lib-storage" }
+lib-consensus = { path = "../lib-consensus" }
+lib-economy = { path = "../lib-economy" }
 
 [features]
-default = []
+default = ["contracts"]
 testing = []
+contracts = []
+
+[dev-dependencies]
+tokio-test = "0.4"
+proptest = "1.0"
+criterion = "0.5"
+tracing-subscriber = "0.3"
+tempfile = "3.0"
+
+[[example]]
+name = "full_consensus_integration"
+path = "examples/full_consensus_integration.rs"

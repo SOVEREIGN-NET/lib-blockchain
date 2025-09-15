@@ -322,7 +322,7 @@ impl TransactionValidator {
 
     /// Validate zero-knowledge proofs for all inputs using real ZK verification
     fn validate_zk_proofs(&self, transaction: &Transaction) -> ValidationResult {
-        use lib_proofs::{ZkTransactionProver, ZkProofSystem};
+        use lib_proofs::{ZkTransactionProof, ZkProofSystem};
         
         println!("🚨 DEBUG: Starting ZK proof validation for {} transaction inputs", transaction.inputs.len());
         log::info!("🔍 Starting ZK proof validation for {} transaction inputs", transaction.inputs.len());
@@ -341,16 +341,16 @@ impl TransactionValidator {
             log::info!("✅ Input {}: Proof structure valid", i);
             
             // Use the proper ZK verification from lib-proofs
-            match ZkTransactionProver::verify_transaction(&input.zk_proof) {
+            match ZkTransactionProof::verify_transaction(&input.zk_proof) {
                 Ok(is_valid) => {
                     if !is_valid {
-                        log::error!("❌ Input {}: ZkTransactionProver verification failed", i);
+                        log::error!("❌ Input {}: ZkTransactionProof verification failed", i);
                         return Err(ValidationError::InvalidZkProof);
                     }
-                    log::info!("✅ Input {}: ZkTransactionProver verification passed", i);
+                    log::info!("✅ Input {}: ZkTransactionProof verification passed", i);
                 },
                 Err(e) => {
-                    log::warn!("⚠️ Input {}: ZkTransactionProver error: {:?}, trying fallback", i, e);
+                    log::warn!("⚠️ Input {}: ZkTransactionProof error: {:?}, trying fallback", i, e);
                     // If ZK verification fails, try fallback verification
                     match verify_transaction_proof(&input.zk_proof) {
                         Ok(false) => {
@@ -621,7 +621,7 @@ impl TransactionValidator {
         }
 
         // Check identity type
-        let valid_types = ["human", "organization", "device", "service", "revoked"];
+        let valid_types = ["human", "organization", "device", "service", "validator", "revoked"];
         if !valid_types.contains(&identity_data.identity_type.as_str()) {
             return Err(ValidationError::InvalidIdentityData);
         }
