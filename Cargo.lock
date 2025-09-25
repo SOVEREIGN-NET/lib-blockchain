@@ -944,6 +944,7 @@ dependencies = [
  "lib-crypto",
  "lib-proofs",
  "md5",
+ "names",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -974,10 +975,12 @@ dependencies = [
  "anyhow",
  "bincode",
  "blake3",
+ "chrono",
  "hex",
  "lib-crypto",
  "lib-identity",
  "lib-proofs",
+ "log",
  "lz4_flex",
  "rand 0.8.5",
  "reed-solomon-erasure",
@@ -1069,6 +1072,15 @@ dependencies = [
  "libc",
  "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "names"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bddcd3bf5144b6392de80e04c347cd7fab2508f6df16a85fc496ecd5cec39bc"
+dependencies = [
+ "rand 0.8.5",
 ]
 
 [[package]]

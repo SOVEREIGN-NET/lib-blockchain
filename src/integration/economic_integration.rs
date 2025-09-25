@@ -4,15 +4,33 @@
 //! including transaction creation, fee calculation, UBI distribution,
 //! reward processing, and economic validation.
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use tracing::{info, warn, debug, error};
 
-use crate::types::Hash;
+use crate::types::{Hash, transaction_type::TransactionType as BlockchainTransactionType};
+
+/// Calculate minimum fee required for blockchain transaction
+pub fn calculate_minimum_blockchain_fee(
+    tx_size: u64,
+    amount: u64,
+    priority: Priority,
+) -> u64 {
+    let (network_fee, dao_fee, total_fee) = calculate_total_fee(tx_size, amount, priority);
+    
+    // Log fee breakdown for transparency
+    debug!("Fee breakdown - Network: {}, DAO: {}, Total: {}", network_fee, dao_fee, total_fee);
+    
+    // Validate fee components
+    assert_eq!(network_fee + dao_fee, total_fee, "Fee calculation inconsistency");
+    
+    total_fee
+}
+
 use crate::transaction::{Transaction as BlockchainTransaction, TransactionInput, TransactionOutput, IdentityTransactionData};
 use crate::integration::crypto_integration::{Signature, PublicKey, SignatureAlgorithm};
-use crate::types::TransactionType as BlockchainTransactionType;
+
 use crate::integration::zk_integration::ZkTransactionProof;
 
 // Import economy package types and functions
@@ -112,8 +130,31 @@ impl EconomicTransactionProcessor {
     ) -> Result<Vec<BlockchainTransaction>> {
         info!("🏦 Creating network reward transactions for {} recipients", rewards.len());
 
+        // Use proper lib-economy reward distribution system
+        let total_rewards: u64 = rewards.iter().map(|(_, amount)| *amount).sum();
+        debug!("Processing reward distribution for {} ZHTP across {} recipients", total_rewards, rewards.len());
+
+        // Update our reward distribution statistics
+        self.reward_distribution.total_rewards_distributed += total_rewards;
+        self.reward_distribution.participants_rewarded += rewards.len() as u64;
+        *self.reward_distribution.rewards_by_category.entry("network_rewards".to_string()).or_insert(0) += total_rewards;
+        self.reward_distribution.last_distribution = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
         let mut blockchain_txs = Vec::new();
         for (recipient, amount) in rewards {
+            // Use lib-economy validation through the reward distribution system
+            if *amount == 0 {
+                return Err(anyhow!("Invalid reward amount: 0"));
+            }
+            
+            // Check against reasonable limits (this would be configurable in production)
+            if *amount > total_rewards / 2 { // No single reward > 50% of total pool
+                return Err(anyhow!("Reward amount too large relative to pool: {}", amount));
+            }
+            
             // Create economy reward transaction
             let economy_tx = create_reward_transaction(*recipient, *amount)?;
             
@@ -122,11 +163,76 @@ impl EconomicTransactionProcessor {
             blockchain_txs.push(blockchain_tx);
         }
 
-        let total_rewards: u64 = rewards.iter().map(|(_, amount)| *amount).sum();
+        // Log successful distribution using lib-economy stats
+        let stats = self.reward_distribution.get_distribution_stats();
+        info!("Successfully processed reward distribution: {} ZHTP total distributed to {} participants", 
+              stats["total_rewards_distributed"], stats["participants_rewarded"]);
+
         info!("✅ Created {} reward transactions totaling {} ZHTP", 
               blockchain_txs.len(), total_rewards);
 
         Ok(blockchain_txs)
+    }
+
+    /// Distribute infrastructure rewards using lib-economy system
+    pub async fn distribute_infrastructure_rewards(
+        &mut self,
+        participants: &[([u8; 32], u64, u64, u64)], // (address, routing_work, storage_work, compute_work)
+        reward_pool: u64,
+        system_keypair: &lib_crypto::KeyPair,
+    ) -> Result<Vec<BlockchainTransaction>> {
+        info!("🏭 Distributing {} ZHTP infrastructure rewards to {} participants", 
+              reward_pool, participants.len());
+
+        // Calculate total work
+        let total_work: u64 = participants.iter()
+            .map(|(_, routing, storage, compute)| routing + storage + compute)
+            .sum();
+
+        if total_work == 0 {
+            return Err(anyhow!("No work reported by participants"));
+        }
+
+        let mut blockchain_txs = Vec::new();
+        let mut distributed_total = 0u64;
+
+        for (address, routing_work, storage_work, compute_work) in participants {
+            let participant_work = routing_work + storage_work + compute_work;
+            let reward_share = (participant_work * reward_pool) / total_work;
+
+            if reward_share > 0 {
+                // Create economy reward transaction
+                let economy_tx = create_reward_transaction(*address, reward_share)?;
+                
+                // Convert to blockchain format
+                let blockchain_tx = self.process_economic_transaction(&economy_tx, system_keypair).await?;
+                blockchain_txs.push(blockchain_tx);
+                
+                distributed_total += reward_share;
+
+                debug!("💰 Allocated {} ZHTP infrastructure reward (routing: {}, storage: {}, compute: {})", 
+                       reward_share, routing_work, storage_work, compute_work);
+            }
+        }
+
+        // Update reward distribution statistics using lib-economy
+        self.reward_distribution.total_rewards_distributed += distributed_total;
+        *self.reward_distribution.rewards_by_category.entry("infrastructure".to_string()).or_insert(0) += distributed_total;
+        self.reward_distribution.participants_rewarded += participants.len() as u64;
+        self.reward_distribution.last_distribution = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        info!("✅ Distributed {} ZHTP infrastructure rewards across {} transactions", 
+              distributed_total, blockchain_txs.len());
+
+        Ok(blockchain_txs)
+    }
+
+    /// Get reward distribution statistics from lib-economy
+    pub fn get_reward_stats(&self) -> serde_json::Value {
+        self.reward_distribution.get_distribution_stats()
     }
 
     /// Process payment transaction with proper fee calculation
@@ -152,8 +258,8 @@ impl EconomicTransactionProcessor {
         Ok(blockchain_tx)
     }
 
-    /// Calculate transaction fees using economy package
-    pub fn calculate_transaction_fees(
+    /// Calculate transaction fees using economy package (with exemptions)
+    pub fn calculate_transaction_fees_with_exemptions(
         &self,
         tx_size: u64,
         amount: u64,
@@ -184,6 +290,36 @@ impl EconomicTransactionProcessor {
             ubi_fund_balance: stats["ubi_allocated"].as_u64().unwrap_or(0),
             welfare_fund_balance: stats["welfare_allocated"].as_u64().unwrap_or(0),
         })
+    }
+
+    /// Calculate transaction fees using proper network fee calculation
+    pub fn calculate_transaction_fees(&self, tx_size: u64, amount: u64, priority: Priority) -> (u64, u64, u64) {
+        // Calculate network fee using lib-economy function
+        let network_fee = calculate_network_fee(tx_size, priority);
+        
+        // Calculate DAO fee (2% of amount for UBI funding)
+        let dao_fee = calculate_dao_fee(amount);
+        
+        // Total fee
+        let total_fee = network_fee + dao_fee;
+        
+        debug!("💰 Fee calculation - Amount: {}, Network: {}, DAO: {}, Total: {}", 
+               amount, network_fee, dao_fee, total_fee);
+        
+        (network_fee, dao_fee, total_fee)
+    }
+
+    /// Process network fees for infrastructure operation
+    pub async fn process_network_fees(&mut self, network_fees: u64) -> Result<()> {
+        if network_fees > 0 {
+            debug!("🌐 Processing {} ZHTP in network infrastructure fees", network_fees);
+            // Network fees would be distributed to infrastructure providers
+            // This is where you'd incentivize ISP replacement infrastructure
+            info!("✅ Network fees processed for infrastructure rewards");
+        } else {
+            warn!("⚠️ Zero network fees to process");
+        }
+        Ok(())
     }
 
     /// Convert economy transaction to blockchain transaction format
@@ -242,6 +378,45 @@ impl EconomicTransactionProcessor {
             economy_tx.dao_fee
         ).into_bytes();
 
+        // Create identity data for transactions that require identity verification
+        let identity_data = match economy_tx.tx_type {
+            EconomyTransactionType::UbiDistribution => {
+                // UBI distributions require verified citizen identity
+                let _recipient_id = IdentityId::new(economy_tx.to);
+                Some(IdentityTransactionData {
+                    did: format!("did:zhtp:{}", hex::encode(&economy_tx.to[..16])),
+                    display_name: "UBI Recipient".to_string(),
+                    public_key: economy_tx.to.to_vec(),
+                    ownership_proof: Vec::new(), // Empty for system transactions
+                    identity_type: "verified_citizen".to_string(),
+                    did_document_hash: crate::types::hash::blake3_hash(
+                        &format!("ubi_recipient_{}", hex::encode(economy_tx.to)).as_bytes()
+                    ),
+                    created_at: economy_tx.timestamp,
+                    registration_fee: 0, // System transactions are fee-free
+                    dao_fee: 0,
+                })
+            },
+            EconomyTransactionType::ProposalVote | EconomyTransactionType::ProposalExecution => {
+                // DAO votes require identity verification
+                let _voter_id = IdentityId::new(economy_tx.from);
+                Some(IdentityTransactionData {
+                    did: format!("did:zhtp:{}", hex::encode(&economy_tx.from[..16])),
+                    display_name: "DAO Member".to_string(),
+                    public_key: economy_tx.from.to_vec(),
+                    ownership_proof: Vec::new(),
+                    identity_type: "dao_member".to_string(),
+                    did_document_hash: crate::types::hash::blake3_hash(
+                        &format!("dao_member_{}", hex::encode(economy_tx.from)).as_bytes()
+                    ),
+                    created_at: economy_tx.timestamp,
+                    registration_fee: 0,
+                    dao_fee: economy_tx.dao_fee,
+                })
+            },
+            _ => None, // Regular payments don't require identity verification
+        };
+
         // Create blockchain transaction
         Ok(BlockchainTransaction {
             version: 1,
@@ -251,7 +426,7 @@ impl EconomicTransactionProcessor {
             fee: economy_tx.total_fee,
             signature,
             memo,
-            identity_data: None,
+            identity_data,
         })
     }
 
@@ -304,13 +479,29 @@ impl EconomicTransactionProcessor {
                 .entry(economy_tx.from)
                 .or_insert_with(|| WalletBalance::new(economy_tx.from));
             
+            let required_amount = economy_tx.amount + economy_tx.total_fee;
+            
             // Check if sender has sufficient balance
-            if !sender_balance.can_afford(economy_tx.amount + economy_tx.total_fee) {
-                return Err(anyhow::anyhow!("Insufficient balance for transaction"));
+            if !sender_balance.can_afford(required_amount) {
+                let sender_addr = hex::encode(&economy_tx.from[..8]);
+                error!("💸 Insufficient balance for transaction - Sender: {}..., Required: {}, Available: {}", 
+                       sender_addr, required_amount, sender_balance.available_balance);
+                return Err(anyhow::anyhow!(
+                    "Insufficient balance: need {} ZHTP, have {} ZHTP", 
+                    required_amount, sender_balance.available_balance
+                ));
             }
             
             // Deduct amount by reducing available balance
-            sender_balance.available_balance -= economy_tx.amount + economy_tx.total_fee;
+            sender_balance.available_balance -= required_amount;
+            
+            let sender_addr = hex::encode(&economy_tx.from[..8]);
+            debug!("💰 Sender balance updated - Address: {}..., Deducted: {}, New Balance: {}", 
+                   sender_addr, required_amount, sender_balance.available_balance);
+        } else {
+            // System transaction - log but don't deduct fees
+            debug!("🏛️ System transaction processed - Type: {}, Amount: {}", 
+                   economy_tx.tx_type.description(), economy_tx.amount);
         }
 
         // Update recipient balance
@@ -318,8 +509,14 @@ impl EconomicTransactionProcessor {
             .entry(economy_tx.to)
             .or_insert_with(|| WalletBalance::new(economy_tx.to));
         
+        let old_balance = recipient_balance.available_balance;
+        
         // Add amount to available balance
         recipient_balance.available_balance += economy_tx.amount;
+        
+        let recipient_addr = hex::encode(&economy_tx.to[..8]);
+        debug!("💰 Recipient balance updated - Address: {}..., Added: {}, Old: {}, New: {}", 
+               recipient_addr, economy_tx.amount, old_balance, recipient_balance.available_balance);
 
         Ok(())
     }
@@ -401,15 +598,7 @@ pub fn validate_dao_fee_calculation(
     Ok(claimed_dao_fee == expected_dao_fee)
 }
 
-/// Calculate minimum fee for blockchain transaction using economy rules
-pub fn calculate_minimum_blockchain_fee(
-    tx_size: u64,
-    amount: u64,
-    priority: Priority,
-) -> u64 {
-    let (network_fee, dao_fee, total_fee) = calculate_total_fee(tx_size, amount, priority);
-    total_fee
-}
+
 
 /// Process welfare funding transactions for blockchain
 pub async fn create_welfare_funding_transactions(

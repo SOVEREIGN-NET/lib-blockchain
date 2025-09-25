@@ -5,8 +5,7 @@
 use crate::transaction::core::{Transaction, TransactionInput, TransactionOutput, IdentityTransactionData};
 use crate::types::{Hash, transaction_type::TransactionType};
 use crate::integration::crypto_integration::{Signature, PublicKey, SignatureAlgorithm};
-use crate::integration::zk_integration::{ZkTransactionProof, verify_transaction_proof, is_valid_proof_structure};
-use serde::{Serialize, Deserialize};
+use crate::integration::zk_integration::{verify_transaction_proof, is_valid_proof_structure};
 
 /// Transaction validation error types
 #[derive(Debug, Clone)]
@@ -23,6 +22,7 @@ pub enum ValidationError {
     MissingRequiredData,
     InvalidTransactionType,
     UnregisteredSender,
+    InvalidMemo,
 }
 
 impl std::fmt::Display for ValidationError {
@@ -40,6 +40,7 @@ impl std::fmt::Display for ValidationError {
             ValidationError::MissingRequiredData => write!(f, "Missing required transaction data"),
             ValidationError::InvalidTransactionType => write!(f, "Invalid transaction type"),
             ValidationError::UnregisteredSender => write!(f, "Transaction from unregistered sender identity"),
+            ValidationError::InvalidMemo => write!(f, "Invalid or missing transaction memo"),
         }
     }
 }
@@ -88,6 +89,20 @@ impl TransactionValidator {
             TransactionType::IdentityRevocation => self.validate_identity_transaction(transaction)?,
             TransactionType::ContractDeployment => self.validate_contract_transaction(transaction)?,
             TransactionType::ContractExecution => self.validate_contract_transaction(transaction)?,
+            TransactionType::SessionCreation | TransactionType::SessionTermination |
+            TransactionType::ContentUpload => {
+                // Audit transactions - validate they have proper memo data
+                if transaction.memo.is_empty() {
+                    return Err(ValidationError::InvalidMemo);
+                }
+            },
+            TransactionType::UbiDistribution => {
+                // UBI distribution is a token transaction - validate with proper token logic
+                self.validate_token_transaction(transaction)?;
+                if transaction.memo.is_empty() {
+                    return Err(ValidationError::InvalidMemo);
+                }
+            },
         }
 
         // Signature validation (always required)
@@ -122,6 +137,20 @@ impl TransactionValidator {
             TransactionType::IdentityRevocation => self.validate_identity_transaction(transaction)?,
             TransactionType::ContractDeployment => self.validate_contract_transaction(transaction)?,
             TransactionType::ContractExecution => self.validate_contract_transaction(transaction)?,
+            TransactionType::SessionCreation | TransactionType::SessionTermination |
+            TransactionType::ContentUpload => {
+                // Audit transactions - validate they have proper memo data
+                if transaction.memo.is_empty() {
+                    return Err(ValidationError::InvalidMemo);
+                }
+            },
+            TransactionType::UbiDistribution => {
+                // UBI distribution is a token transaction - validate with proper token logic
+                self.validate_token_transaction(transaction)?;
+                if transaction.memo.is_empty() {
+                    return Err(ValidationError::InvalidMemo);
+                }
+            },
         }
 
         // Signature validation (always required)
@@ -287,7 +316,6 @@ impl TransactionValidator {
         // Verify signature algorithm is supported
         match transaction.signature.algorithm {
             SignatureAlgorithm::Dilithium2 | 
-            SignatureAlgorithm::Dilithium2 | 
             SignatureAlgorithm::Dilithium5 | 
             SignatureAlgorithm::Ed25519 => {
                 // Supported algorithms
@@ -322,7 +350,7 @@ impl TransactionValidator {
 
     /// Validate zero-knowledge proofs for all inputs using real ZK verification
     fn validate_zk_proofs(&self, transaction: &Transaction) -> ValidationResult {
-        use lib_proofs::{ZkTransactionProof, ZkProofSystem};
+        use lib_proofs::ZkTransactionProof;
         
         println!("🚨 DEBUG: Starting ZK proof validation for {} transaction inputs", transaction.inputs.len());
         log::info!("🔍 Starting ZK proof validation for {} transaction inputs", transaction.inputs.len());
@@ -540,19 +568,7 @@ impl TransactionValidator {
         Ok(())
     }
 
-    /// Validate economic aspects (fees, amounts) - legacy method
-    fn validate_economics(&self, transaction: &Transaction) -> ValidationResult {
-        // Check minimum fee
-        let min_fee = calculate_minimum_fee(transaction.size());
-        if transaction.fee < min_fee {
-            return Err(ValidationError::InvalidFee);
-        }
 
-        // Economic validation is handled by lib-economy package
-        // Here we just check basic fee requirements
-
-        Ok(())
-    }
 
     /// Validate individual transaction input
     fn validate_transaction_input(&self, input: &TransactionInput) -> ValidationResult {
@@ -680,6 +696,13 @@ impl<'a> StatefulTransactionValidator<'a> {
             TransactionType::IdentityRevocation => stateless_validator.validate_identity_transaction(transaction)?,
             TransactionType::ContractDeployment => stateless_validator.validate_contract_transaction(transaction)?,
             TransactionType::ContractExecution => stateless_validator.validate_contract_transaction(transaction)?,
+            TransactionType::SessionCreation | TransactionType::SessionTermination |
+            TransactionType::ContentUpload | TransactionType::UbiDistribution => {
+                // Audit transactions - validate they have proper memo data
+                if transaction.memo.is_empty() {
+                    return Err(ValidationError::InvalidMemo);
+                }
+            },
         }
 
         // 🔥 CRITICAL FIX: Verify sender identity exists on blockchain
@@ -790,6 +813,11 @@ pub mod utils {
             TransactionType::ContractDeployment | 
             TransactionType::ContractExecution => {
                 !transaction.inputs.is_empty() && !transaction.outputs.is_empty()
+            },
+            TransactionType::SessionCreation | TransactionType::SessionTermination |
+            TransactionType::ContentUpload | TransactionType::UbiDistribution => {
+                // Audit transactions should have memo data but no strict input/output requirements
+                !transaction.memo.is_empty()
             }
         }
     }

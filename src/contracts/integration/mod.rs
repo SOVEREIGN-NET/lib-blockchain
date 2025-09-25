@@ -6,6 +6,7 @@ use crate::{
 use anyhow::{Result, anyhow};
 use crate::integration::crypto_integration::{PublicKey, Signature, KeyPair};
 use serde::{Serialize, Deserialize};
+use tracing::{debug, error};
 
 /// Integration with ZHTP blockchain for contract execution
 pub struct BlockchainIntegration<S: ContractStorage> {
@@ -52,6 +53,7 @@ impl<S: ContractStorage> BlockchainIntegration<S> {
             match self.executor.execute_call(call, &mut context) {
                 Ok(result) => results.push(result),
                 Err(e) => {
+                    error!("Contract execution failed: {}", e);
                     results.push(ContractResult::failure(context.gas_used));
                 }
             }
@@ -88,13 +90,12 @@ impl<S: ContractStorage> BlockchainIntegration<S> {
         // Extract the public key from the transaction signature
         // In the ZHTP system, we can derive the public key from the signature
         if let Some(input) = transaction.inputs.first() {
-            // For now, extract public key from the transaction output's recipient
-            // This is a simplified implementation
-            if let Some(output) = transaction.outputs.first() {
-                Ok(output.recipient.clone())
-            } else {
-                Err(anyhow!("No outputs found in transaction"))
-            }
+            // Use the public key from the input's scriptPubKey or signature
+            // In ZHTP, the previous output's public key becomes the input's verification key
+            debug!("Extracting public key from input: prev_hash={}", hex::encode(&input.previous_output.as_bytes()));
+            
+            // For contract calls, use the transaction signature's public key
+            Ok(transaction.signature.public_key.clone())
         } else {
             Err(anyhow!("No inputs found in transaction"))
         }

@@ -10,7 +10,7 @@ use tracing::{info, warn, error};
 use crate::types::{Hash, Difficulty};
 use crate::transaction::{Transaction, TransactionInput, TransactionOutput, IdentityTransactionData};
 use crate::types::transaction_type::TransactionType;
-use crate::block::{Block, BlockHeader};
+use crate::block::Block;
 use crate::integration::crypto_integration::{Signature, PublicKey, SignatureAlgorithm};
 use crate::integration::zk_integration::ZkTransactionProof;
 use crate::integration::economic_integration::{EconomicTransactionProcessor, TreasuryStats};
@@ -879,7 +879,7 @@ impl Blockchain {
         services: &[(String, [u8; 32], u64)], // (service_name, address, amount)
         system_keypair: &lib_crypto::KeyPair,
     ) -> Result<Vec<Hash>> {
-        if let Some(ref mut processor) = self.economic_processor {
+        if let Some(ref mut _processor) = self.economic_processor {
             let blockchain_txs = crate::integration::economic_integration::create_welfare_funding_transactions(
                 services, system_keypair
             ).await?;
@@ -916,7 +916,7 @@ impl Blockchain {
         is_system_transaction: bool,
     ) -> (u64, u64, u64) {
         if let Some(ref processor) = self.economic_processor {
-            processor.calculate_transaction_fees(tx_size, amount, priority, is_system_transaction)
+            processor.calculate_transaction_fees_with_exemptions(tx_size, amount, priority, is_system_transaction)
         } else {
             // Fallback basic fee calculation if processor not available
             if is_system_transaction {
@@ -1099,7 +1099,7 @@ impl Blockchain {
     /// Recover blockchain state from persistent storage
     pub async fn recover_from_storage(&mut self) -> Result<bool> {
         if let Some(storage_manager_arc) = &self.storage_manager {
-            let mut storage_manager = storage_manager_arc.write().await;
+            let mut _storage_manager = storage_manager_arc.write().await;
             info!("🔄 Starting blockchain recovery from storage...");
 
             // For now, return false since the retrieval methods need proper implementation
@@ -1186,7 +1186,7 @@ impl Blockchain {
 
     /// Restore blockchain from a backup
     pub async fn restore_from_backup(&mut self, backup_id: &str) -> Result<bool> {
-        if let Some(storage_manager) = &self.storage_manager {
+        if let Some(_storage_manager) = &self.storage_manager {
             info!("🔄 Restoring blockchain from backup: {}", backup_id);
 
             // Implementation would depend on storage manager's backup format
@@ -1240,7 +1240,7 @@ impl Blockchain {
 
     /// Get storage statistics
     pub async fn get_storage_stats(&self) -> Result<Option<serde_json::Value>> {
-        if let Some(storage_manager) = &self.storage_manager {
+        if let Some(_storage_manager) = &self.storage_manager {
             // This would return storage statistics from the unified storage system
             // Implementation depends on storage manager capabilities
             let stats = serde_json::json!({
@@ -1280,7 +1280,7 @@ impl Blockchain {
 
     /// Cleanup old storage data (for maintenance)
     pub async fn cleanup_storage(&self, retain_blocks: u32) -> Result<()> {
-        if let Some(storage_manager) = &self.storage_manager {
+        if let Some(_storage_manager) = &self.storage_manager {
             info!("🧹 Starting storage cleanup, retaining last {} blocks", retain_blocks);
             
             // This would implement cleanup logic in the storage manager

@@ -6,6 +6,7 @@ use serde::{Serialize, Deserialize};
 use crate::integration::crypto_integration::PublicKey;
 use crate::transaction::IdentityTransactionData;
 use crate::types::Hash;
+use lib_identity::{IdentityType, AccessLevel};
 
 /// DID (Decentralized Identifier) structure
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +42,46 @@ impl Did {
 impl std::fmt::Display for Did {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_string())
+    }
+}
+
+/// Convert string identity type to proper IdentityType enum
+pub fn parse_identity_type(identity_type_str: &str) -> Result<IdentityType> {
+    match identity_type_str.to_lowercase().as_str() {
+        "human" | "individual" | "person" => Ok(IdentityType::Human),
+        "agent" | "ai" | "bot" => Ok(IdentityType::Agent),
+        "contract" | "smart_contract" => Ok(IdentityType::Contract),
+        "organization" | "org" | "company" => Ok(IdentityType::Organization),
+        "device" | "iot" | "sensor" => Ok(IdentityType::Device),
+        _ => Err(anyhow::anyhow!("Unknown identity type: {}", identity_type_str)),
+    }
+}
+
+/// Convert IdentityType enum to string representation
+pub fn identity_type_to_string(identity_type: &IdentityType) -> String {
+    match identity_type {
+        IdentityType::Human => "human".to_string(),
+        IdentityType::Agent => "agent".to_string(),
+        IdentityType::Contract => "contract".to_string(),
+        IdentityType::Organization => "organization".to_string(),
+        IdentityType::Device => "device".to_string(),
+    }
+}
+
+/// Determine access level based on identity type and reputation
+pub fn determine_access_level(identity_type: &IdentityType, reputation_score: u32) -> AccessLevel {
+    match identity_type {
+        IdentityType::Human => {
+            if reputation_score >= 80 {
+                AccessLevel::FullCitizen
+            } else {
+                AccessLevel::Visitor // Assuming Visitor exists in AccessLevel
+            }
+        },
+        IdentityType::Organization => AccessLevel::FullCitizen, // Organizations get full access
+        IdentityType::Agent | IdentityType::Contract | IdentityType::Device => {
+            AccessLevel::Visitor // AI/devices get limited access initially
+        },
     }
 }
 
@@ -314,7 +355,7 @@ mod tests {
             display_name: "Test User".to_string(),
             public_key: keypair.public_key.key_id.to_vec(),
             ownership_proof: Vec::new(),
-            identity_type: "individual".to_string(),
+            identity_type: identity_type_to_string(&IdentityType::Human),
             did_document_hash: Hash::default(),
             created_at: 0,
             registration_fee: 0,
@@ -334,7 +375,7 @@ mod tests {
             display_name: "Test User 2".to_string(),
             public_key: keypair.public_key.key_id.to_vec(),
             ownership_proof: Vec::new(),
-            identity_type: "individual".to_string(),
+            identity_type: identity_type_to_string(&IdentityType::Human),
             did_document_hash: Hash::default(),
             created_at: 0,
             registration_fee: 0,

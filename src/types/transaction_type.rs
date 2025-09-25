@@ -20,6 +20,14 @@ pub enum TransactionType {
     ContractDeployment,
     /// Smart contract execution (delegates to lib-contracts)
     ContractExecution,
+    /// Session creation for audit/tracking purposes
+    SessionCreation,
+    /// Session termination for audit/tracking purposes
+    SessionTermination,
+    /// Content upload transaction
+    ContentUpload,
+    /// Universal Basic Income distribution
+    UbiDistribution,
 }
 
 impl TransactionType {
@@ -54,6 +62,10 @@ impl TransactionType {
             TransactionType::IdentityRevocation => "Identity revocation",
             TransactionType::ContractDeployment => "Smart contract deployment",
             TransactionType::ContractExecution => "Smart contract execution",
+            TransactionType::SessionCreation => "Session creation for audit/tracking",
+            TransactionType::SessionTermination => "Session termination for audit/tracking",
+            TransactionType::ContentUpload => "Content upload transaction",
+            TransactionType::UbiDistribution => "Universal Basic Income distribution",
         }
     }
 
@@ -66,6 +78,10 @@ impl TransactionType {
             TransactionType::IdentityRevocation => "identity_revocation",
             TransactionType::ContractDeployment => "contract_deployment",
             TransactionType::ContractExecution => "contract_execution",
+            TransactionType::SessionCreation => "session_creation",
+            TransactionType::SessionTermination => "session_termination",
+            TransactionType::ContentUpload => "content_upload",
+            TransactionType::UbiDistribution => "ubi_distribution",
         }
     }
 
@@ -78,6 +94,10 @@ impl TransactionType {
             "identity_revocation" => Some(TransactionType::IdentityRevocation),
             "contract_deployment" => Some(TransactionType::ContractDeployment),
             "contract_execution" => Some(TransactionType::ContractExecution),
+            "session_creation" => Some(TransactionType::SessionCreation),
+            "session_termination" => Some(TransactionType::SessionTermination),
+            "content_upload" => Some(TransactionType::ContentUpload),
+            "ubi_distribution" => Some(TransactionType::UbiDistribution),
             _ => None,
         }
     }

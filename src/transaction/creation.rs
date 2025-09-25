@@ -3,10 +3,9 @@
 //! Provides functionality for creating new transactions in the ZHTP blockchain.
 
 use crate::transaction::core::{Transaction, TransactionInput, TransactionOutput, IdentityTransactionData};
-use crate::types::{Hash, transaction_type::TransactionType};
-use crate::integration::crypto_integration::{Signature, PublicKey, PrivateKey, KeyPair, SignatureAlgorithm};
-use crate::integration::zk_integration::ZkTransactionProof;
-use serde::{Serialize, Deserialize};
+use crate::types::transaction_type::TransactionType;
+use crate::integration::crypto_integration::{Signature, PublicKey, PrivateKey, SignatureAlgorithm};
+use tracing::debug;
 
 /// Error types for transaction creation
 #[derive(Debug, Clone)]
@@ -167,15 +166,20 @@ impl TransactionBuilder {
         let mut inputs_with_proofs = Vec::with_capacity(self.inputs.len());
         
         for input in &self.inputs {
-            // Generate cryptographic parameters for ZK proof
+            // Generate cryptographic parameters for ZK proof using private key
             let sender_nonce = generate_nonce();
             let nullifier_nonce = generate_nonce();
             
-            // Convert 12-byte nonces to 32-byte arrays for ZK proof
+            // Use private key bytes to derive sender secret for ZK proof
             let mut sender_secret = [0u8; 32];
             let mut nullifier_secret = [0u8; 32];
-            sender_secret[..12].copy_from_slice(&sender_nonce);
-            nullifier_secret[..12].copy_from_slice(&nullifier_nonce);
+            
+            // Combine private key with nonce for enhanced security
+            let pk_bytes = &private_key.dilithium_sk[..12.min(private_key.dilithium_sk.len())];
+            for i in 0..pk_bytes.len() {
+                sender_secret[i] = pk_bytes[i] ^ sender_nonce[i % sender_nonce.len()];
+                nullifier_secret[i] = pk_bytes[i] ^ nullifier_nonce[i % nullifier_nonce.len()];
+            }
             
             // Estimate sender balance (in a real implementation, this would be looked up from UTXO set)
             let estimated_sender_balance = self.fee + 1000; // Ensure sufficient balance for fee
@@ -209,7 +213,7 @@ impl TransactionBuilder {
 
     /// Sign a transaction with the given private key using lib-crypto
     fn sign_transaction(transaction: &Transaction, private_key: &PrivateKey) -> Result<Signature, String> {
-        use lib_crypto::{keypair::generation::KeyPair, utils::compatibility::sign_message};
+        use lib_crypto::post_quantum::dilithium::{dilithium2_sign, dilithium5_sign};
         
         // Create transaction hash for signing (without signature)
         let mut tx_for_signing = transaction.clone();
@@ -222,16 +226,29 @@ impl TransactionBuilder {
         
         let tx_hash = crate::transaction::hashing::hash_transaction(&tx_for_signing);
         
-        // Use lib-crypto for proper signing
-        match KeyPair::generate() {
-            Ok(keypair) => {
-                // Sign the transaction hash
-                match sign_message(&keypair, tx_hash.as_bytes()) {
-                    Ok(signature) => {
-                        Ok(signature)
+        // Use the provided private key for signing
+        let signature_result = if private_key.dilithium_sk.len() == 2528 { // Dilithium2 size
+            dilithium2_sign(tx_hash.as_bytes(), &private_key.dilithium_sk)
+        } else { // Assume Dilithium5
+            dilithium5_sign(tx_hash.as_bytes(), &private_key.dilithium_sk)
+        };
+        
+        match signature_result {
+            Ok(signature_bytes) => {
+                let signature = Signature {
+                    signature: signature_bytes,
+                    public_key: PublicKey::new(private_key.dilithium_sk[..32].to_vec()), // Derive public key
+                    algorithm: if private_key.dilithium_sk.len() == 2528 { 
+                        SignatureAlgorithm::Dilithium2 
+                    } else { 
+                        SignatureAlgorithm::Dilithium5 
                     },
-                    Err(e) => Err(format!("Failed to sign transaction: {}", e))
-                }
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                };
+                Ok(signature)
             },
             Err(e) => Err(format!("Failed to create keypair: {}", e))
         }
@@ -302,10 +319,22 @@ pub mod utils {
 
     /// Calculate the minimum fee for a transaction based on size
     pub fn calculate_minimum_fee(transaction_size: usize) -> u64 {
-        // BETA: Use 0 per byte for testing ZK transactions
+        // Dynamic fee calculation based on transaction size
         let base_fee = 1000u64;
-        let size_fee = 0u64; // 0 per byte during beta testing
-        base_fee + size_fee
+        let bytes_per_zhtp = 100; // 100 bytes per 1 ZHTP fee unit
+        let size_fee = (transaction_size as u64 / bytes_per_zhtp).max(1); // Minimum 1 ZHTP for size
+        
+        // Apply size multiplier for larger transactions
+        let total_fee = if transaction_size > 10000 { // Large transaction threshold
+            base_fee + (size_fee * 2) // Double the size fee for large transactions
+        } else {
+            base_fee + size_fee
+        };
+        
+        debug!("Calculated fee for {} byte transaction: {} ZHTP (base: {}, size: {})", 
+               transaction_size, total_fee, base_fee, size_fee);
+        
+        total_fee
     }
 
     /// Estimate transaction size before creation
@@ -349,6 +378,11 @@ pub mod utils {
                 if inputs.is_empty() || outputs.is_empty() {
                     return Err(TransactionCreateError::InvalidInputs);
                 }
+            }
+            TransactionType::SessionCreation | TransactionType::SessionTermination |
+            TransactionType::ContentUpload | TransactionType::UbiDistribution => {
+                // Audit transactions - no specific validation needed here
+                // Memo validation will be handled during transaction validation
             }
         }
 

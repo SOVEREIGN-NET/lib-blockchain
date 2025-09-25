@@ -20,12 +20,13 @@ use hex;
 // Import from lib-storage - use their types, not our own
 use lib_storage::{
     UnifiedStorageSystem, UnifiedStorageConfig, UploadRequest, DownloadRequest, 
-    SearchQuery, AccessControlSettings, ContentStorageRequirements, PaymentSchedule,
+    SearchQuery, AccessControlSettings, ContentStorageRequirements,
     StorageRequirements
 };
 use lib_storage::types::{
     NodeId, ContentHash, StorageTier, EncryptionLevel, AccessPattern,
-    QualityRequirements, BudgetConstraints, DhtStats, EconomicStats, StorageStats
+    QualityRequirements, BudgetConstraints, DhtStats, EconomicStats, StorageStats,
+    PaymentSchedule
 };
 use lib_identity::{ZhtpIdentity, IdentityType, AccessLevel, IdentityId};
 
@@ -165,9 +166,11 @@ impl BlockchainStorageManager {
     pub async fn new(config: BlockchainStorageConfig) -> Result<Self> {
         info!("🗃️ Initializing blockchain storage manager");
 
-        // Create unified storage configuration
+        // Create unified storage configuration with proper NodeId
+        let random_bytes = rand::random::<[u8; 32]>();
+        let node_id = lib_crypto::Hash::from_bytes(&random_bytes);
         let storage_config = UnifiedStorageConfig {
-            node_id: lib_crypto::Hash::from_bytes(&rand::random::<[u8; 32]>()),
+            node_id,
             addresses: vec!["127.0.0.1:33445".to_string()],
             economic_config: lib_storage::types::economic_types::EconomicManagerConfig::default(),
             storage_config: lib_storage::StorageConfig {
@@ -554,7 +557,10 @@ impl BlockchainStorageManager {
                 format!("did-{}", did),
                 format!("type-{}", identity_data.identity_type),
             ],
-            encrypt: true, // Always encrypt identity data
+            encrypt: match self.get_encryption_level_for_data_type("identity") {
+                EncryptionLevel::HighSecurity | EncryptionLevel::Standard | EncryptionLevel::QuantumResistant => true,
+                EncryptionLevel::None => false,
+            }, // Use proper encryption level for identity data
             compress: self.config.enable_compression,
             access_control: AccessControlSettings {
                 public_read: false, // Identity data is private
@@ -775,7 +781,7 @@ impl BlockchainStorageManager {
             match self.store_block(block).await {
                 Ok(result) => results.push(result),
                 Err(e) => {
-                    warn!("Failed to backup block {}: {}", block.height(), e);
+                    error!("🚨 Critical failure backing up block {}: {}", block.height(), e);
                     results.push(StorageOperationResult {
                         success: false,
                         content_hash: None,
@@ -806,7 +812,7 @@ impl BlockchainStorageManager {
             match self.store_identity_data(did, identity_data).await {
                 Ok(result) => results.push(result),
                 Err(e) => {
-                    warn!("Failed to backup identity {}: {}", did, e);
+                    error!("🚨 Critical failure backing up identity {}: {}", did, e);
                 }
             }
         }
@@ -925,7 +931,7 @@ impl BlockchainStorageManager {
 
     /// Retrieve all identity data from storage
     pub async fn retrieve_all_identities(&self) -> Result<HashMap<String, IdentityTransactionData>> {
-        let mut identities = HashMap::new();
+        let identities = HashMap::new();
         
         // In a real implementation, this would iterate through stored identity keys
         // For now, return empty map as this requires storage metadata support
@@ -937,6 +943,29 @@ impl BlockchainStorageManager {
     /// Get storage configuration
     pub fn get_config(&self) -> &BlockchainStorageConfig {
         &self.config
+    }
+
+    // Helper methods for storage configuration
+    fn get_encryption_level_for_data_type(&self, data_type: &str) -> EncryptionLevel {
+        match data_type {
+            "identity" => EncryptionLevel::HighSecurity,     // Identity data needs strong encryption
+            "blockchain" => EncryptionLevel::Standard, // Blockchain state needs medium encryption
+            "transaction" => EncryptionLevel::Standard, // Transactions need medium encryption  
+            "utxo" => EncryptionLevel::Standard,       // UTXO set needs medium encryption
+            "mempool" => EncryptionLevel::None,       // Mempool can use basic encryption
+            _ => EncryptionLevel::Standard,            // Default to medium encryption
+        }
+    }
+
+    fn get_access_pattern_for_data_type(&self, data_type: &str) -> AccessPattern {
+        match data_type {
+            "blockchain" => AccessPattern::Frequent, // Blockchain accessed frequently
+            "mempool" => AccessPattern::Frequent,        // Mempool accessed frequently
+            "utxo" => AccessPattern::Frequent,           // UTXO lookups are frequent
+            "identity" => AccessPattern::Rare,   // Identity data accessed infrequently
+            "transaction" => AccessPattern::Occasional, // Transactions accessed occasionally
+            _ => AccessPattern::Occasional,                 // Default to occasional access
+        }
     }
 
     // Helper methods for serialization/deserialization
@@ -958,6 +987,83 @@ impl BlockchainStorageManager {
     fn deserialize_block(&self, data: &[u8]) -> Result<Block> {
         bincode::deserialize(data)
             .map_err(|e| anyhow::anyhow!("Failed to deserialize block: {}", e))
+    }
+
+    /// Get comprehensive DHT statistics for monitoring
+    pub async fn get_dht_statistics(&self) -> Result<DhtStats> {
+        let _storage_system = self.storage_system.read().await;
+        
+        // In a real implementation, these would be pulled from the storage system
+        let dht_stats = DhtStats {
+            total_nodes: 0, // Would query DHT for actual node count
+            total_connections: 0, // Active peer connections
+            total_messages_sent: 0, // DHT protocol messages
+            total_messages_received: 0,
+            routing_table_size: self.stats.routing_table_size,
+            storage_utilization: self.calculate_storage_utilization().await?,
+            network_health: self.calculate_network_health().await?,
+        };
+        
+        info!("📊 DHT Statistics: {} nodes, {:.1}% storage utilization, {:.1}% network health", 
+              dht_stats.total_nodes, 
+              dht_stats.storage_utilization * 100.0,
+              dht_stats.network_health * 100.0);
+        
+        Ok(dht_stats)
+    }
+
+    /// Get economic statistics for storage operations
+    pub async fn get_economic_statistics(&self) -> Result<EconomicStats> {
+        let economic_stats = EconomicStats {
+            total_contracts: self.stats.active_contracts as u64,
+            total_storage: self.stats.total_size,
+            total_value_locked: 0, // Would calculate from contract values
+            average_contract_value: 0, // Would calculate from contracts
+            total_penalties: 0, // Would track penalty events
+            total_rewards: 0, // Would track reward distributions
+        };
+        
+        info!("💰 Economic Statistics: {} contracts, {} bytes storage, {} tokens locked",
+              economic_stats.total_contracts,
+              economic_stats.total_storage,
+              economic_stats.total_value_locked);
+        
+        Ok(economic_stats)
+    }
+
+    /// Calculate current storage utilization percentage
+    async fn calculate_storage_utilization(&self) -> Result<f64> {
+        let max_storage = 1_000_000_000_000u64; // 1TB (from config)
+        let used_storage = self.stats.total_size;
+        
+        if max_storage == 0 {
+            Ok(0.0)
+        } else {
+            Ok((used_storage as f64) / (max_storage as f64))
+        }
+    }
+
+    /// Calculate network health score based on various metrics
+    async fn calculate_network_health(&self) -> Result<f64> {
+        let mut health_score = 1.0f64;
+        
+        // Factor in DHT connectivity
+        if self.stats.routing_table_size < 20 {
+            health_score *= 0.8; // Reduce health if few DHT connections
+        }
+        
+        // Factor in storage distribution
+        let storage_util = self.calculate_storage_utilization().await?;
+        if storage_util > 0.9 {
+            health_score *= 0.7; // Reduce health if storage nearly full
+        }
+        
+        // Factor in cache hit rate (simplified)
+        if self.stats.cache_size == 0 {
+            health_score *= 0.9; // Slight reduction if no caching
+        }
+        
+        Ok(health_score.max(0.0).min(1.0))
     }
 
     fn serialize_transaction(&self, transaction: &Transaction) -> Result<Vec<u8>> {

@@ -3,10 +3,10 @@
 //! Provides secure hashing functionality for ZHTP blockchain transactions.
 
 use crate::transaction::core::{Transaction, TransactionInput, TransactionOutput};
-use crate::types::{Hash, hash::blake3_hash};
-use crate::integration::crypto_integration::{Signature, PublicKey, PrivateKey, KeyPair, SignatureAlgorithm};
+use crate::types::Hash;
+use crate::integration::crypto_integration::{Signature, PublicKey, PrivateKey, SignatureAlgorithm};
 use crate::integration::zk_integration::ZkTransactionProof;
-use serde::{Serialize, Deserialize};
+use tracing::debug;
 
 /// Hash a complete transaction
 pub fn hash_transaction(transaction: &Transaction) -> Hash {
@@ -124,15 +124,34 @@ pub fn create_encrypted_note(
     note_data.extend_from_slice(&(memo.len() as u32).to_le_bytes());
     note_data.extend_from_slice(memo);
     
-    // Create keypairs for encryption
-    let sender_keypair = KeyPair::generate()
-        .map_err(|e| format!("Failed to create sender keypair: {}", e))?;
+    // Use the provided keys for encryption
+    debug!("Creating encrypted note using recipient key: {} bytes, sender key: {} bytes", 
+           recipient_key.dilithium_pk.len(), sender_key.dilithium_sk.len());
     
-    let recipient_keypair = KeyPair::generate()
-        .map_err(|e| format!("Failed to create recipient keypair: {}", e))?;
+    // Add sender's signature to the note for authenticity
+    let mut signed_note_data = note_data.clone();
+    // Create authenticated note with sender signature using lib-identity
+    // Convert PrivateKey to PostQuantumKeypair for lib-identity signing
+    let post_quantum_keypair = lib_identity::cryptography::key_generation::PostQuantumKeypair {
+        public_key: recipient_key.dilithium_pk.clone(),
+        private_key: sender_key.dilithium_sk.clone(),
+        algorithm: "Dilithium5".to_string(),
+        security_level: 5,
+        key_id: format!("tx_signing_{}", hex::encode(&sender_key.dilithium_sk[..8])),
+    };
     
-    // Encrypt the note using hybrid encryption (delegated to lib-crypto)
-    let encrypted_note = crate::integration::crypto_integration::hybrid_encrypt(&note_data, &recipient_keypair.public_key)
+    // Sign the note data using lib-identity's post-quantum signing
+    if let Ok(signature) = lib_identity::cryptography::signatures::sign_with_identity(
+        &post_quantum_keypair,
+        &note_data,
+        None, // No additional signature parameters
+    ) {
+        // Append the actual signature to note data
+        signed_note_data.extend_from_slice(&signature.signature);
+    }
+    
+    // Encrypt the note using hybrid encryption with the recipient's public key
+    let encrypted_note = crate::integration::crypto_integration::hybrid_encrypt(&signed_note_data, recipient_key)
         .map_err(|e| format!("Note encryption failed: {}", e))?;
     
     // Return hash of encrypted note

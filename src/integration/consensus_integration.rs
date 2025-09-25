@@ -6,7 +6,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use tokio::sync::{RwLock, mpsc};
 use tracing::{info, warn, error, debug};
 
@@ -34,6 +34,25 @@ use crate::{
 pub struct ValidatorKeypair {
     pub public_key: lib_crypto::PublicKey,
     pub private_key: lib_crypto::PrivateKey,
+}
+
+/// Detailed information about a validator
+#[derive(Debug, Clone)]
+pub struct ValidatorInfo {
+    /// Validator's identity
+    pub identity: IdentityId,
+    /// Current validator status
+    pub status: ValidatorStatus,
+    /// Amount of ZHTP staked
+    pub stake_amount: u64,
+    /// Reputation score (0-100)
+    pub reputation_score: u8,
+    /// Height of last active participation
+    pub last_active_height: u64,
+    /// Total number of blocks produced
+    pub total_blocks_produced: u64,
+    /// Number of times slashed for misbehavior
+    pub slashing_count: u32,
 }
 
 /// Blockchain consensus coordinator
@@ -283,6 +302,11 @@ impl BlockchainConsensusCoordinator {
         // Verify block can be added to blockchain
         let blockchain = self.blockchain.read().await;
         if let Some(latest_block) = blockchain.latest_block() {
+            // Validate that the previous hash matches the latest block
+            if latest_block.header.hash() != blockchain_previous_hash {
+                return Err(anyhow!("Previous hash mismatch: expected {}, got {}", 
+                    latest_block.header.hash(), blockchain_previous_hash));
+            }
             if latest_block.height() + 1 != height {
                 return Err(anyhow::anyhow!(
                     "Block height mismatch: expected {}, got {}",
@@ -393,11 +417,27 @@ impl BlockchainConsensusCoordinator {
         let blockchain = self.blockchain.read().await;
         let previous_block = blockchain.latest_block();
         let height = proposal.height;
+        
+        // Validate that the proposal height is consistent with blockchain state
+        if let Some(ref prev_block) = previous_block {
+            if height != prev_block.header.height + 1 {
+                return Err(anyhow!("Invalid height: expected {}, got {}", prev_block.header.height + 1, height));
+            }
+            debug!("Validated block height against previous block: {}", prev_block.header.height);
+        }
+        
         let mut hash_bytes = [0u8; 32];
         let prop_bytes = proposal.previous_hash.as_bytes();
         hash_bytes[..prop_bytes.len().min(32)].copy_from_slice(&prop_bytes[..prop_bytes.len().min(32)]);
         let previous_hash = BlockchainHash::from(hash_bytes);
         let timestamp = proposal.timestamp;
+        
+        // Validate proposal timestamp
+        if let Err(e) = validate_consensus_timestamp(timestamp) {
+            warn!("⚠️ Invalid proposal timestamp: {}", e);
+            return Err(anyhow!("Proposal timestamp validation failed: {}", e));
+        }
+        debug!("✅ Proposal timestamp validated: {}", timestamp);
         
         // Calculate merkle root from actual transactions
         let merkle_root = crate::transaction::hashing::calculate_transaction_merkle_root(&transactions);
@@ -495,7 +535,8 @@ impl BlockchainConsensusCoordinator {
         proposal_data.extend_from_slice(&height.to_le_bytes());
         proposal_data.extend_from_slice(consensus_previous_hash.as_bytes());
         proposal_data.extend_from_slice(&block_data);
-        proposal_data.extend_from_slice(&current_timestamp().to_le_bytes());
+        let consensus_timestamp = get_current_unix_timestamp().unwrap_or(0);
+        proposal_data.extend_from_slice(&consensus_timestamp.to_le_bytes());
         
         let proposal_id = Hash::from_bytes(&hash_blake3(&proposal_data));
         
@@ -505,7 +546,7 @@ impl BlockchainConsensusCoordinator {
             proposer: self.local_validator_id.clone().unwrap_or_else(|| Hash::from_bytes(&[0u8; 32])),
             previous_hash: consensus_previous_hash,
             block_data,
-            timestamp: current_timestamp(),
+            timestamp: consensus_timestamp,
             signature: lib_crypto::Signature {
                 signature: vec![0u8; 64], // Would be properly signed in production
                 public_key: lib_crypto::PublicKey::new(vec![0u8; 32]),
@@ -742,6 +783,10 @@ impl BlockchainConsensusCoordinator {
             .ok_or_else(|| anyhow::anyhow!("Not a validator"))?;
 
         let mut consensus_engine = self.consensus_engine.write().await;
+        
+        // Log the validator casting the vote
+        debug!("Validator {} casting vote {:?} for proposal {}", 
+               validator_id, vote_type, proposal_id);
         let vote = ConsensusVote {
             id: lib_crypto::Hash::from_bytes(&[0u8; 32]),
             voter: self.local_validator_id.clone().unwrap_or_else(|| lib_crypto::Hash::from_bytes(&[0u8; 32])),
@@ -767,7 +812,14 @@ impl BlockchainConsensusCoordinator {
         // Create block header
         let blockchain = self.blockchain.read().await;
         let previous_block = blockchain.latest_block();
-        let height = proposal.height;
+        
+        // Determine height based on previous block
+        let height = if let Some(ref prev_block) = previous_block {
+            prev_block.header.height + 1
+        } else {
+            proposal.height // Genesis block case
+        };
+        
         let mut hash_bytes = [0u8; 32];
         let prop_bytes = proposal.previous_hash.as_bytes();
         hash_bytes[..prop_bytes.len().min(32)].copy_from_slice(&prop_bytes[..prop_bytes.len().min(32)]);
@@ -1163,6 +1215,50 @@ impl BlockchainConsensusCoordinator {
         })
     }
 
+    /// Get detailed validator information
+    pub async fn get_validator_info(&self, validator_id: &IdentityId) -> Result<Option<ValidatorInfo>> {
+        let consensus_engine = self.consensus_engine.read().await;
+        let validator_manager = consensus_engine.validator_manager();
+        
+        // Get the specific validator
+        if let Some(validator) = validator_manager.get_validator(validator_id) {
+            Ok(Some(ValidatorInfo {
+                identity: validator.identity.clone(),
+                status: validator.status.clone(),
+                stake_amount: validator.stake,
+                reputation_score: validator.reputation as u8, // Convert u32 to u8
+                last_active_height: validator.last_activity,
+                total_blocks_produced: 0, // Field not available in Validator struct
+                slashing_count: validator.slash_count,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List all validators with their current status
+    pub async fn list_all_validators(&self) -> Result<Vec<ValidatorInfo>> {
+        let consensus_engine = self.consensus_engine.read().await;
+        let validator_manager = consensus_engine.validator_manager();
+        
+        let mut validator_infos = Vec::new();
+        
+        // Get all active validators and their details
+        for validator in validator_manager.get_active_validators() {
+            validator_infos.push(ValidatorInfo {
+                identity: validator.identity.clone(),
+                status: validator.status.clone(),
+                stake_amount: validator.stake,
+                reputation_score: validator.reputation as u8, // Convert u32 to u8
+                last_active_height: validator.last_activity,
+                total_blocks_produced: 0, // Field not available in Validator struct
+                slashing_count: validator.slash_count,
+            });
+        }
+        
+        Ok(validator_infos)
+    }
+
     /// Stop the consensus coordinator
     pub async fn stop(&mut self) {
         info!("🛑 Stopping blockchain consensus coordinator");
@@ -1204,6 +1300,8 @@ impl BlockchainConsensusCoordinator {
         // For deterministic keypairs, would need to implement seed-based generation
         let validator_id = self.local_validator_id.as_ref()
             .ok_or_else(|| anyhow::anyhow!("No validator ID configured"))?;
+        
+        debug!("Generating consensus keypair for validator: {}", validator_id);
         
         // Generate new keypair (in production, this would be persistent)
         let keypair = lib_crypto::generate_keypair()?;
@@ -1276,19 +1374,24 @@ pub fn create_dao_proposal_transaction(
     let memo = format!("dao:proposal:title:{}|description:{}|type:{:?}", 
                       title, description, proposal_type);
 
-    // Create system transaction with empty signature (system transactions bypass validation)
-    let transaction = Transaction::new(
+    // Create system transaction signed by the proposer for validation
+    let mut transaction = Transaction::new(
         vec![], // No inputs for record transaction
         vec![], // No outputs for record transaction
         100, // DAO proposal fee
         crate::integration::crypto_integration::Signature {
-            signature: vec![], // Empty signature for system transaction
-            public_key: crate::integration::crypto_integration::PublicKey::new(vec![]),
+            signature: vec![], // Will be filled after signing
+            public_key: proposer_keypair.public_key.clone(),
             algorithm: crate::integration::crypto_integration::SignatureAlgorithm::Dilithium2,
             timestamp: current_timestamp(),
         },
         memo.into_bytes(),
     );
+
+    // Sign the transaction with the proposer's keypair
+    let tx_hash = transaction.hash();
+    let signature = proposer_keypair.sign(&tx_hash.as_bytes())?;
+    transaction.signature = signature;
 
     Ok(transaction)
 }
@@ -1312,19 +1415,55 @@ pub fn create_dao_vote_transaction(
                           DaoVoteChoice::Delegate(_) => "delegate",
                       });
 
-    // Create system transaction with empty signature (system transactions bypass validation)
-    let transaction = Transaction::new(
+    // Create system transaction signed by the voter for validation
+    let mut transaction = Transaction::new(
         vec![], // No inputs for record transaction
         vec![], // No outputs for record transaction
         10, // DAO vote fee
         crate::integration::crypto_integration::Signature {
-            signature: vec![], // Empty signature for system transaction
-            public_key: crate::integration::crypto_integration::PublicKey::new(vec![]),
+            signature: vec![], // Will be filled after signing
+            public_key: voter_keypair.public_key.clone(),
             algorithm: crate::integration::crypto_integration::SignatureAlgorithm::Dilithium2,
             timestamp: current_timestamp(),
         },
         memo.into_bytes(),
     );
 
+    // Sign the transaction with the voter's keypair
+    let tx_hash = transaction.hash();
+    let signature = voter_keypair.sign(&tx_hash.as_bytes())?;
+    transaction.signature = signature;
+
     Ok(transaction)
+}
+
+/// Get current UNIX timestamp using proper SystemTime
+fn get_current_unix_timestamp() -> Result<u64> {
+    let now = SystemTime::now();
+    let duration = now.duration_since(UNIX_EPOCH)
+        .map_err(|e| anyhow!("System time before UNIX epoch: {}", e))?;
+    Ok(duration.as_secs())
+}
+
+/// Validate timestamp is within acceptable range (not too far in past or future)
+fn validate_consensus_timestamp(timestamp: u64) -> Result<()> {
+    let current_time = get_current_unix_timestamp()?;
+    let max_time_drift = 300; // 5 minutes tolerance
+    
+    if timestamp > current_time + max_time_drift {
+        return Err(anyhow!("Timestamp too far in future: {} vs {}", timestamp, current_time));
+    }
+    
+    if timestamp < current_time.saturating_sub(max_time_drift) {
+        return Err(anyhow!("Timestamp too far in past: {} vs {}", timestamp, current_time));
+    }
+    
+    Ok(())
+}
+
+/// Convert SystemTime to consensus timestamp
+fn system_time_to_consensus_timestamp(time: SystemTime) -> Result<u64> {
+    let duration = time.duration_since(UNIX_EPOCH)
+        .map_err(|e| anyhow!("Time conversion error: {}", e))?;
+    Ok(duration.as_secs())
 }

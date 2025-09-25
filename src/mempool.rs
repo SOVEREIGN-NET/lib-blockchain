@@ -2,7 +2,7 @@
 //! 
 //! Manages transactions waiting to be included in blocks.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use serde::{Serialize, Deserialize};
 use crate::types::Hash;
 use crate::transaction::{Transaction, ValidationError};
