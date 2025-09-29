@@ -14,20 +14,20 @@ pub fn verify_transaction_proof(proof: &ZkTransactionProof) -> Result<bool, Stri
 }
 
 pub fn is_valid_proof_structure(proof: &ZkTransactionProof) -> bool {
-    println!("🚨 DEBUG: Checking proof structure...");
-    println!("🚨 DEBUG: amount_proof.is_empty() = {}", proof.amount_proof.is_empty());
-    println!("🚨 DEBUG: balance_proof.is_empty() = {}", proof.balance_proof.is_empty());
-    println!("🚨 DEBUG: nullifier_proof.is_empty() = {}", proof.nullifier_proof.is_empty());
+    println!("DEBUG: Checking proof structure...");
+    println!("DEBUG: amount_proof.is_empty() = {}", proof.amount_proof.is_empty());
+    println!("DEBUG: balance_proof.is_empty() = {}", proof.balance_proof.is_empty());
+    println!("DEBUG: nullifier_proof.is_empty() = {}", proof.nullifier_proof.is_empty());
     
-    println!("🚨 DEBUG: amount_proof.proof_system = '{}'", proof.amount_proof.proof_system);
-    println!("🚨 DEBUG: amount_proof.plonky2_proof.is_some() = {}", proof.amount_proof.plonky2_proof.is_some());
+    println!("DEBUG: amount_proof.proof_system = '{}'", proof.amount_proof.proof_system);
+    println!("DEBUG: amount_proof.plonky2_proof.is_some() = {}", proof.amount_proof.plonky2_proof.is_some());
     
     // Check if the proof has the required fields
     let valid = !proof.amount_proof.is_empty() && 
                !proof.balance_proof.is_empty() &&
                !proof.nullifier_proof.is_empty();
     
-    println!("🚨 DEBUG: Overall proof structure valid = {}", valid);
+    println!("DEBUG: Overall proof structure valid = {}", valid);
     valid
 }
 

@@ -90,7 +90,7 @@ impl EconomicTransactionProcessor {
         // Validate the conversion
         self.validate_economic_conversion(&blockchain_tx, economy_tx)?;
 
-        info!("✅ Economic transaction processed: {} ZHTP from {:?} to {:?}", 
+        info!("Economic transaction processed: {} ZHTP from {:?} to {:?}", 
               economy_tx.amount, economy_tx.from, economy_tx.to);
 
         Ok(blockchain_tx)
@@ -102,7 +102,7 @@ impl EconomicTransactionProcessor {
         citizens: &[(IdentityId, u64)],
         system_keypair: &lib_crypto::KeyPair,
     ) -> Result<Vec<BlockchainTransaction>> {
-        info!("🏦 Creating UBI distributions for {} citizens", citizens.len());
+        info!("Creating UBI distributions for {} citizens", citizens.len());
 
         // Create economy UBI transactions
         let economy_ubi_txs = create_ubi_distributions(citizens)?;
@@ -116,7 +116,7 @@ impl EconomicTransactionProcessor {
 
         // Update UBI statistics
         let total_ubi_amount: u64 = citizens.iter().map(|(_, amount)| *amount).sum();
-        info!("✅ Created {} UBI distributions totaling {} ZHTP", 
+        info!("Created {} UBI distributions totaling {} ZHTP", 
               blockchain_txs.len(), total_ubi_amount);
 
         Ok(blockchain_txs)
@@ -252,7 +252,7 @@ impl EconomicTransactionProcessor {
         // Process and convert to blockchain format
         let blockchain_tx = self.process_economic_transaction(&economy_tx, sender_keypair).await?;
 
-        info!("✅ Payment transaction created with {} ZHTP base fee and {} ZHTP DAO fee", 
+        info!("Payment transaction created with {} ZHTP base fee and {} ZHTP DAO fee", 
               economy_tx.base_fee, economy_tx.dao_fee);
 
         Ok(blockchain_tx)
@@ -303,7 +303,7 @@ impl EconomicTransactionProcessor {
         // Total fee
         let total_fee = network_fee + dao_fee;
         
-        debug!("💰 Fee calculation - Amount: {}, Network: {}, DAO: {}, Total: {}", 
+        debug!("Fee calculation - Amount: {}, Network: {}, DAO: {}, Total: {}", 
                amount, network_fee, dao_fee, total_fee);
         
         (network_fee, dao_fee, total_fee)
@@ -315,9 +315,9 @@ impl EconomicTransactionProcessor {
             debug!("🌐 Processing {} ZHTP in network infrastructure fees", network_fees);
             // Network fees would be distributed to infrastructure providers
             // This is where you'd incentivize ISP replacement infrastructure
-            info!("✅ Network fees processed for infrastructure rewards");
+            info!("Network fees processed for infrastructure rewards");
         } else {
-            warn!("⚠️ Zero network fees to process");
+            warn!("Error: Zero network fees to process");
         }
         Ok(())
     }
@@ -484,7 +484,7 @@ impl EconomicTransactionProcessor {
             // Check if sender has sufficient balance
             if !sender_balance.can_afford(required_amount) {
                 let sender_addr = hex::encode(&economy_tx.from[..8]);
-                error!("💸 Insufficient balance for transaction - Sender: {}..., Required: {}, Available: {}", 
+                error!("Insufficient balance for transaction - Sender: {}..., Required: {}, Available: {}", 
                        sender_addr, required_amount, sender_balance.available_balance);
                 return Err(anyhow::anyhow!(
                     "Insufficient balance: need {} ZHTP, have {} ZHTP", 

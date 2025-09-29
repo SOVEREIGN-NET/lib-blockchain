@@ -72,7 +72,7 @@ impl UnifiedZkBlockchainManager {
             &transaction_data,
         ).await?;
 
-        info!("✅ Generated unified transaction proof covering validity, fees, and economics");
+        info!("Generated unified transaction proof covering validity, fees, and economics");
         Ok(composite_proof)
     }
 
@@ -93,24 +93,24 @@ impl UnifiedZkBlockchainManager {
         let verification_result = coordinator.verify_proof(&unified_proof_type).await?;
 
         if !verification_result {
-            warn!("❌ Unified transaction proof verification failed");
+            warn!("Error: Unified transaction proof verification failed");
             return Ok(false);
         }
 
         // Verify fee calculation is consistent
         if proof.fee_proof.calculated_fee != expected_fee {
-            warn!("❌ Fee calculation mismatch: expected {}, got {}", 
+            warn!("Error:Fee calculation mismatch: expected {}, got {}", 
                   expected_fee, proof.fee_proof.calculated_fee);
             return Ok(false);
         }
 
         // Verify economic impact is positive (for reward-generating transactions)
         if proof.economic_proof.reward_eligibility && proof.economic_proof.economic_impact < 0 {
-            warn!("❌ Negative economic impact for reward-eligible transaction");
+            warn!("Error: Negative economic impact for reward-eligible transaction");
             return Ok(false);
         }
 
-        info!("✅ Unified transaction proof verified successfully");
+        info!("Unified transaction proof verified successfully");
         Ok(true)
     }
 
@@ -125,7 +125,7 @@ impl UnifiedZkBlockchainManager {
         let coordinator = self.zk_coordinator.as_ref()
             .ok_or_else(|| anyhow!("ZK coordinator not set"))?;
 
-        info!("🔧 Generating unified consensus proof for validator: {}", validator_id);
+        info!("Generating unified consensus proof for validator: {}", validator_id);
 
         // Generate stake range proof (proves sufficient stake without revealing exact amount)
         let stake_proof = coordinator.get_or_generate_range_proof(
@@ -164,7 +164,7 @@ impl UnifiedZkBlockchainManager {
             voting_power_proof: voting_power_proof.range_proof,
         };
 
-        info!("✅ Generated unified consensus proof for validator: {}", validator_id);
+        info!("Generated unified consensus proof for validator: {}", validator_id);
         Ok(consensus_proof)
     }
 
@@ -178,7 +178,7 @@ impl UnifiedZkBlockchainManager {
         let coordinator = self.zk_coordinator.as_ref()
             .ok_or_else(|| anyhow!("ZK coordinator not set"))?;
 
-        info!("🔍 Verifying unified consensus proof for validator: {}", validator_id);
+        info!("Verifying unified consensus proof for validator: {}", validator_id);
 
         // Verify stake proof
         if !coordinator.verify_proof(&zhtp::UnifiedProofType::Range(zhtp::GenericRangeProof {
@@ -188,7 +188,7 @@ impl UnifiedZkBlockchainManager {
             min_value: minimum_stake,
             max_value: None,
         })).await? {
-            warn!("❌ Stake proof verification failed for validator: {}", validator_id);
+            warn!("Stake proof verification failed for validator: {}", validator_id);
             return Ok(false);
         }
 
@@ -200,11 +200,11 @@ impl UnifiedZkBlockchainManager {
             min_value: 1,
             max_value: Some(1000),
         })).await? {
-            warn!("❌ Voting power proof verification failed for validator: {}", validator_id);
+            warn!("Voting power proof verification failed for validator: {}", validator_id);
             return Ok(false);
         }
 
-        info!("✅ Unified consensus proof verified for validator: {}", validator_id);
+        info!("Unified consensus proof verified for validator: {}", validator_id);
         Ok(true)
     }
 
@@ -225,7 +225,7 @@ impl UnifiedZkBlockchainManager {
         // Add to blockchain (simplified)
         self.blockchain.add_transaction(transaction)?;
         
-        info!("✅ Transaction added to blockchain with verified unified proof");
+        info!("Transaction added to blockchain with verified unified proof");
         Ok(())
     }
 
@@ -392,7 +392,7 @@ impl BlockchainZkExtension for Blockchain {
             transaction_data,
         ).await?;
 
-        info!("✅ Created unified transaction proof for blockchain");
+        info!("Created unified transaction proof for blockchain");
         Ok(proof)
     }
 
@@ -402,19 +402,19 @@ impl BlockchainZkExtension for Blockchain {
         proof: &zhtp::CompositeTransactionProof,
         coordinator: &zhtp::ZkProofCoordinator,
     ) -> Result<bool> {
-        info!("🔍 Verifying unified transaction proof for blockchain");
+        info!("Verifying unified transaction proof for blockchain");
 
         let unified_proof_type = zhtp::UnifiedProofType::Transaction(proof.clone());
         let verification_result = coordinator.verify_proof(&unified_proof_type).await?;
 
         if !verification_result {
-            warn!("❌ Unified transaction proof verification failed");
+            warn!("Unified transaction proof verification failed");
             return Ok(false);
         }
 
         // Additional blockchain-specific validations
         if proof.fee_proof.calculated_fee < 1 {
-            warn!("❌ Fee too low for blockchain transaction");
+            warn!("Fee too low for blockchain transaction");
             return Ok(false);
         }
 
@@ -423,11 +423,11 @@ impl BlockchainZkExtension for Blockchain {
         let total_cost = proof.fee_proof.calculated_fee + 1000; // Simplified amount extraction
         
         if sender_balance < total_cost {
-            warn!("❌ Insufficient balance for transaction");
+            warn!("Insufficient balance for transaction");
             return Ok(false);
         }
 
-        info!("✅ Unified transaction proof verified for blockchain");
+        info!("Unified transaction proof verified for blockchain");
         Ok(true)
     }
 }

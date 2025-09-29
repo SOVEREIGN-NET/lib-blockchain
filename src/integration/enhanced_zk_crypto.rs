@@ -398,7 +398,6 @@ impl EnhancedTransactionCreator {
             recipient: crate::integration::crypto_integration::PublicKey {
                 dilithium_pk: receiver_address.to_vec(),
                 kyber_pk: Vec::new(),
-                ed25519_pk: Vec::new(),
                 key_id: *receiver_address,
             },
         };

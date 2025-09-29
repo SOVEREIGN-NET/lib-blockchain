@@ -316,8 +316,7 @@ impl TransactionValidator {
         // Verify signature algorithm is supported
         match transaction.signature.algorithm {
             SignatureAlgorithm::Dilithium2 | 
-            SignatureAlgorithm::Dilithium5 | 
-            SignatureAlgorithm::Ed25519 => {
+            SignatureAlgorithm::Dilithium5 => {
                 // Supported algorithms
             },
             _ => {
@@ -378,21 +377,8 @@ impl TransactionValidator {
                     log::info!("✅ Input {}: ZkTransactionProof verification passed", i);
                 },
                 Err(e) => {
-                    log::warn!("⚠️ Input {}: ZkTransactionProof error: {:?}, trying fallback", i, e);
-                    // If ZK verification fails, try fallback verification
-                    match verify_transaction_proof(&input.zk_proof) {
-                        Ok(false) => {
-                            log::error!("❌ Input {}: Fallback verification failed", i);
-                            return Err(ValidationError::InvalidZkProof);
-                        },
-                        Err(e) => {
-                            log::error!("❌ Input {}: Fallback verification error: {:?}", i, e);
-                            return Err(ValidationError::InvalidZkProof);
-                        },
-                        Ok(true) => {
-                            log::info!("✅ Input {}: Fallback verification passed", i);
-                        }
-                    }
+                    log::error!("❌ Input {}: ZK verification failed - NO FALLBACKS ALLOWED: {:?}", i, e);
+                    return Err(ValidationError::InvalidZkProof);
                 }
             }
             
@@ -422,20 +408,17 @@ impl TransactionValidator {
                             return Err(ValidationError::InvalidZkProof);
                         }
                     },
-                    Err(_) => {
-                        // Fallback to basic structural validation
-                        if input.zk_proof.nullifier_proof.public_inputs.is_empty() {
-                            return Err(ValidationError::InvalidZkProof);
-                        }
+                    Err(e) => {
+                        // NO FALLBACKS - fail hard if ZK verification fails
+                        log::error!("❌ Nullifier ZK verification failed - no fallbacks allowed: {:?}", e);
+                        return Err(ValidationError::InvalidZkProof);
                     }
                 }
             }
         } else {
-            // Fallback verification for non-Plonky2 proofs
-            if input.zk_proof.nullifier_proof.public_inputs.is_empty() ||
-               input.zk_proof.nullifier_proof.verification_key.is_empty() {
-                return Err(ValidationError::InvalidZkProof);
-            }
+            // NO FALLBACKS - require Plonky2 proofs only
+            log::error!("❌ Nullifier proof missing Plonky2 verification - no fallbacks allowed");
+            return Err(ValidationError::InvalidZkProof);
         }
         
         Ok(())
@@ -522,16 +505,9 @@ impl TransactionValidator {
                 return Err(ValidationError::InvalidZkProof);
             }
         } else {
-            println!("🚨 DEBUG: No Plonky2 proof found, using fallback validation");
-            log::info!("🔍 No Plonky2 proof found, using fallback validation");
-            
-            // Fallback verification for non-Plonky2 proofs
-            if input.zk_proof.amount_proof.public_inputs.is_empty() ||
-               input.zk_proof.amount_proof.verification_key.is_empty() {
-                println!("🚨 DEBUG: Fallback validation failed - missing components");
-                log::error!("❌ Fallback validation failed - missing components");
-                return Err(ValidationError::InvalidZkProof);
-            }
+            println!("🚨 DEBUG: No Plonky2 proof found - NO FALLBACKS ALLOWED");
+            log::error!("❌ Amount proof missing Plonky2 verification - no fallbacks allowed");
+            return Err(ValidationError::InvalidZkProof);
         }
         
         println!("🚨 DEBUG: validate_amount_range_proof completed successfully");
@@ -607,7 +583,7 @@ impl TransactionValidator {
         }
 
         // Check recipient public key is valid
-        if output.recipient.dilithium_pk.is_empty() && output.recipient.ed25519_pk.is_empty() {
+        if output.recipient.dilithium_pk.is_empty() {
             return Err(ValidationError::InvalidOutputs);
         }
 

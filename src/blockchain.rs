@@ -17,6 +17,13 @@ use crate::integration::economic_integration::{EconomicTransactionProcessor, Tre
 use crate::integration::consensus_integration::{BlockchainConsensusCoordinator, ConsensusStatus};
 use crate::integration::storage_integration::{BlockchainStorageManager, BlockchainStorageConfig, StorageOperationResult};
 
+// Import lib-proofs for recursive proof aggregation
+// Import lib-proofs for recursive proof aggregation
+use lib_proofs::{
+    RecursiveProofAggregator, InstantStateVerifier,
+    verifiers::transaction_verifier::{BatchedPrivateTransaction, BatchMetadata}
+};
+
 /// Blockchain state with identity registry and UTXO management
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blockchain {
@@ -49,6 +56,9 @@ pub struct Blockchain {
     /// Storage manager for persistent data
     #[serde(skip)]
     pub storage_manager: Option<std::sync::Arc<tokio::sync::RwLock<BlockchainStorageManager>>>,
+    /// Recursive proof aggregator for O(1) state verification
+    #[serde(skip)]
+    pub proof_aggregator: Option<std::sync::Arc<tokio::sync::RwLock<lib_proofs::RecursiveProofAggregator>>>,
     /// Auto-persistence configuration
     pub auto_persist_enabled: bool,
     /// Block counter for auto-persistence
@@ -86,6 +96,7 @@ impl Blockchain {
             economic_processor: Some(EconomicTransactionProcessor::new()),
             consensus_coordinator: None,
             storage_manager: None,
+            proof_aggregator: None,
             auto_persist_enabled: true,
             blocks_since_last_persist: 0,
         };
@@ -113,6 +124,17 @@ impl Blockchain {
         Ok(())
     }
 
+    /// Initialize the recursive proof aggregator for O(1) state verification
+    pub fn initialize_proof_aggregator(&mut self) -> Result<()> {
+        info!("🔗 Initializing recursive proof aggregator");
+        
+        let aggregator = lib_proofs::RecursiveProofAggregator::new()?;
+        self.proof_aggregator = Some(std::sync::Arc::new(tokio::sync::RwLock::new(aggregator)));
+        
+        info!("✅ Recursive proof aggregator initialized successfully");
+        Ok(())
+    }
+
     /// Load blockchain from persistent storage
     pub async fn load_from_storage(storage_config: BlockchainStorageConfig, content_hash: lib_storage::types::ContentHash) -> Result<Self> {
         info!("📥 Loading blockchain from storage");
@@ -123,6 +145,7 @@ impl Blockchain {
         // Re-initialize non-serialized components
         blockchain.economic_processor = Some(EconomicTransactionProcessor::new());
         blockchain.storage_manager = Some(std::sync::Arc::new(tokio::sync::RwLock::new(storage_manager)));
+        blockchain.proof_aggregator = None; // Will be initialized on first use
         blockchain.auto_persist_enabled = true;
         blockchain.blocks_since_last_persist = 0;
         
@@ -756,6 +779,112 @@ impl Blockchain {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Get access to the recursive proof aggregator for O(1) verification
+    pub async fn get_proof_aggregator(&mut self) -> Result<std::sync::Arc<tokio::sync::RwLock<lib_proofs::RecursiveProofAggregator>>> {
+        if self.proof_aggregator.is_none() {
+            self.initialize_proof_aggregator()?;
+        }
+        
+        self.proof_aggregator.clone()
+            .ok_or_else(|| anyhow::anyhow!("Failed to initialize proof aggregator"))
+    }
+
+    /// Enable O(1) verification for the blockchain by processing all blocks through recursive aggregation
+    pub async fn enable_instant_verification(&mut self) -> Result<()> {
+        info!("🚀 Enabling O(1) instant verification for blockchain");
+        
+        // Initialize aggregator if not already done
+        let aggregator_arc = self.get_proof_aggregator().await?;
+        
+        // Process each block through the aggregator to build recursive proof chain
+        let mut aggregator = aggregator_arc.write().await;
+        let mut previous_chain_proof: Option<lib_proofs::ChainRecursiveProof> = None;
+        
+        for (i, block) in self.blocks.iter().enumerate() {
+            info!("🔗 Processing block {} for recursive proof aggregation", i);
+            
+            // Convert block transactions to the format expected by the aggregator
+            let batched_transactions: Vec<BatchedPrivateTransaction> = 
+                block.transactions.iter().map(|tx| {
+                    // Create batched transaction metadata
+                    let batch_metadata = BatchMetadata {
+                        transaction_count: 1,
+                        fee_tier: 0, // Standard fee tier
+                        block_height: block.height(),
+                        batch_commitment: tx.hash().as_array(),
+                    };
+
+                    // Create a ZkTransactionProof for the transaction
+                    let zk_tx_proof = lib_proofs::ZkTransactionProof::default(); // Using default for demo
+
+                    BatchedPrivateTransaction {
+                        transaction_proofs: vec![zk_tx_proof],
+                        merkle_root: tx.hash().as_array(),
+                        batch_metadata,
+                    }
+                }).collect();
+
+            // Get previous state root (using merkle root as state representation)
+            let previous_state_root = if i > 0 {
+                let merkle_bytes = self.blocks[i - 1].header.merkle_root.as_bytes();
+                let mut root = [0u8; 32];
+                root.copy_from_slice(merkle_bytes);
+                root
+            } else {
+                [0u8; 32] // Genesis block
+            };
+
+            // Aggregate block proof
+            match aggregator.aggregate_block_transactions(
+                block.height(),
+                &batched_transactions,
+                &previous_state_root,
+                block.header.timestamp,
+            ) {
+                Ok(block_proof) => {
+                    info!("✅ Block {} proof aggregated successfully", i);
+
+                    // Create recursive chain proof
+                    match aggregator.create_recursive_chain_proof(&block_proof, previous_chain_proof.as_ref()) {
+                        Ok(chain_proof) => {
+                            info!("🚀 Recursive chain proof created for block {}", i);
+                            previous_chain_proof = Some(chain_proof);
+                        }
+                        Err(e) => {
+                            error!("❌ Failed to create recursive chain proof for block {}: {}", i, e);
+                            return Err(anyhow::anyhow!("Failed to create recursive chain proof: {}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("❌ Failed to aggregate block {} proof: {}", i, e);
+                    return Err(anyhow::anyhow!("Failed to aggregate block proof: {}", e));
+                }
+            }
+        }
+
+        // Verify the final recursive proof works
+        if let Some(final_chain_proof) = previous_chain_proof {
+            let verifier = lib_proofs::InstantStateVerifier::new()?;
+            match verifier.verify_current_state(&final_chain_proof) {
+                Ok(true) => {
+                    info!("✅ Final recursive chain proof verification successful");
+                }
+                Ok(false) => {
+                    warn!("⚠️ Final recursive chain proof verification failed");
+                    return Err(anyhow::anyhow!("Recursive chain proof verification failed"));
+                }
+                Err(e) => {
+                    error!("❌ Error verifying final recursive chain proof: {}", e);
+                    return Err(anyhow::anyhow!("Error verifying recursive chain proof: {}", e));
+                }
+            }
+        }
+        
+        info!("✅ O(1) instant verification enabled for entire blockchain with {} blocks", self.blocks.len());
         Ok(())
     }
 

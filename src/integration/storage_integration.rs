@@ -164,7 +164,7 @@ pub enum StorageOperationType {
 impl BlockchainStorageManager {
     /// Create a new blockchain storage manager
     pub async fn new(config: BlockchainStorageConfig) -> Result<Self> {
-        info!("🗃️ Initializing blockchain storage manager");
+        info!("Initializing blockchain storage manager");
 
         // Create unified storage configuration with proper NodeId
         let random_bytes = rand::random::<[u8; 32]>();
@@ -211,7 +211,7 @@ impl BlockchainStorageManager {
 
     /// Store complete blockchain state with optional erasure coding
     pub async fn store_blockchain_state(&mut self, blockchain: &Blockchain) -> Result<StorageOperationResult> {
-        info!("💾 Storing complete blockchain state (height: {})", blockchain.height);
+        info!("Storing complete blockchain state (height: {})", blockchain.height);
 
         let start_time = std::time::Instant::now();
 
@@ -260,7 +260,7 @@ impl BlockchainStorageManager {
 
         // Store using erasure coding if enabled
         let content_hash = if self.config.enable_erasure_coding {
-            info!("🔧 Using erasure coding for blockchain state storage");
+            info!("Using erasure coding for blockchain state storage");
             let storage_requirements = StorageRequirements {
                 duration_days: 365 * 10,
                 quality_requirements: upload_request.storage_requirements.quality_requirements.clone(),
@@ -279,7 +279,7 @@ impl BlockchainStorageManager {
         };
 
         let elapsed = start_time.elapsed();
-        info!("✅ Blockchain state stored successfully in {:?} (hash: {})", 
+        info!("Blockchain state stored successfully in {:?} (hash: {})", 
               elapsed, hex::encode(content_hash.as_bytes()));
 
         // Update statistics
@@ -307,7 +307,7 @@ impl BlockchainStorageManager {
 
     /// Retrieve complete blockchain state from storage
     pub async fn retrieve_blockchain_state(&mut self, content_hash: ContentHash) -> Result<Blockchain> {
-        info!("📥 Retrieving blockchain state (hash: {})", hex::encode(content_hash.as_bytes()));
+        info!("Retrieving blockchain state (hash: {})", hex::encode(content_hash.as_bytes()));
 
         let download_request = DownloadRequest {
             content_hash,
@@ -321,13 +321,13 @@ impl BlockchainStorageManager {
 
         let blockchain = self.deserialize_blockchain_state(&serialized_state)?;
 
-        info!("✅ Blockchain state retrieved successfully (height: {})", blockchain.height);
+        info!("Blockchain state retrieved successfully (height: {})", blockchain.height);
         Ok(blockchain)
     }
 
     /// Store individual block with metadata
     pub async fn store_block(&mut self, block: &Block) -> Result<StorageOperationResult> {
-        debug!("💾 Storing block {} (height: {})", hex::encode(block.hash().as_bytes()), block.height());
+        debug!("Storing block {} (height: {})", hex::encode(block.hash().as_bytes()), block.height());
 
         // Check cache first
         if let Ok(mut cache) = self.cache.try_write() {
@@ -383,7 +383,7 @@ impl BlockchainStorageManager {
             .upload_content(upload_request, system_identity)
             .await?;
 
-        debug!("✅ Block stored successfully (hash: {})", hex::encode(content_hash.as_bytes()));
+        debug!("Block stored successfully (hash: {})", hex::encode(content_hash.as_bytes()));
 
         Ok(StorageOperationResult {
             success: true,
@@ -406,7 +406,7 @@ impl BlockchainStorageManager {
 
     /// Retrieve block by content hash
     pub async fn retrieve_block(&mut self, content_hash: ContentHash) -> Result<Block> {
-        debug!("📥 Retrieving block (hash: {})", hex::encode(content_hash.as_bytes()));
+        debug!("Retrieving block (hash: {})", hex::encode(content_hash.as_bytes()));
 
         let download_request = DownloadRequest {
             content_hash,
@@ -426,7 +426,7 @@ impl BlockchainStorageManager {
             cache.hit_count += 1;
         }
 
-        debug!("✅ Block retrieved successfully (height: {})", block.height());
+        debug!("Block retrieved successfully (height: {})", block.height());
         Ok(block)
     }
 
@@ -469,7 +469,7 @@ impl BlockchainStorageManager {
 
     /// Store transaction with indexing
     pub async fn store_transaction(&mut self, transaction: &Transaction) -> Result<StorageOperationResult> {
-        debug!("💾 Storing transaction {}", hex::encode(transaction.hash().as_bytes()));
+        debug!("Storing transaction {}", hex::encode(transaction.hash().as_bytes()));
 
         let serialized_tx = self.serialize_transaction(transaction)?;
 
@@ -520,7 +520,7 @@ impl BlockchainStorageManager {
             cache.transactions.insert(transaction.hash(), transaction.clone());
         }
 
-        debug!("✅ Transaction stored successfully");
+        debug!("Transaction stored successfully");
 
         Ok(StorageOperationResult {
             success: true,
@@ -543,7 +543,7 @@ impl BlockchainStorageManager {
 
     /// Store identity data with access control
     pub async fn store_identity_data(&mut self, did: &str, identity_data: &IdentityTransactionData) -> Result<StorageOperationResult> {
-        info!("💾 Storing identity data for DID: {}", did);
+        info!("Storing identity data for DID: {}", did);
 
         let serialized_identity = self.serialize_identity_data(identity_data)?;
 
@@ -596,7 +596,7 @@ impl BlockchainStorageManager {
             cache.identities.insert(did.to_string(), identity_data.clone());
         }
 
-        info!("✅ Identity data stored successfully for DID: {}", did);
+        info!("Identity data stored successfully for DID: {}", did);
 
         Ok(StorageOperationResult {
             success: true,
@@ -619,7 +619,7 @@ impl BlockchainStorageManager {
 
     /// Store UTXO set for fast synchronization
     pub async fn store_utxo_set(&mut self, utxo_set: &HashMap<Hash, crate::transaction::TransactionOutput>) -> Result<StorageOperationResult> {
-        info!("💾 Storing UTXO set ({} entries)", utxo_set.len());
+        info!("Storing UTXO set ({} entries)", utxo_set.len());
 
         let serialized_utxo = bincode::serialize(utxo_set)
             .map_err(|e| anyhow::anyhow!("Failed to serialize UTXO set: {}", e))?;
@@ -671,7 +671,7 @@ impl BlockchainStorageManager {
             .upload_content(upload_request, system_identity)
             .await?;
 
-        info!("✅ UTXO set stored successfully");
+        info!("UTXO set stored successfully");
 
         Ok(StorageOperationResult {
             success: true,
@@ -694,7 +694,7 @@ impl BlockchainStorageManager {
 
     /// Store mempool state for recovery
     pub async fn store_mempool(&mut self, mempool: &Mempool) -> Result<StorageOperationResult> {
-        debug!("💾 Storing mempool state");
+        debug!("Storing mempool state");
 
         let serialized_mempool = bincode::serialize(mempool)
             .map_err(|e| anyhow::anyhow!("Failed to serialize mempool: {}", e))?;
@@ -745,7 +745,7 @@ impl BlockchainStorageManager {
             .upload_content(upload_request, system_identity)
             .await?;
 
-        debug!("✅ Mempool stored successfully");
+        debug!("Mempool stored successfully");
 
         Ok(StorageOperationResult {
             success: true,
@@ -768,7 +768,7 @@ impl BlockchainStorageManager {
 
     /// Backup entire blockchain to distributed storage with erasure coding
     pub async fn backup_blockchain(&mut self, blockchain: &Blockchain) -> Result<Vec<StorageOperationResult>> {
-        info!("📦 Starting complete blockchain backup (height: {})", blockchain.height);
+        info!("Starting complete blockchain backup (height: {})", blockchain.height);
 
         let mut results = Vec::new();
 
@@ -781,7 +781,7 @@ impl BlockchainStorageManager {
             match self.store_block(block).await {
                 Ok(result) => results.push(result),
                 Err(e) => {
-                    error!("🚨 Critical failure backing up block {}: {}", block.height(), e);
+                    error!("Error: Critical failure backing up block {}: {}", block.height(), e);
                     results.push(StorageOperationResult {
                         success: false,
                         content_hash: None,
@@ -812,7 +812,7 @@ impl BlockchainStorageManager {
             match self.store_identity_data(did, identity_data).await {
                 Ok(result) => results.push(result),
                 Err(e) => {
-                    error!("🚨 Critical failure backing up identity {}: {}", did, e);
+                    error!("Error: Critical failure backing up identity {}: {}", did, e);
                 }
             }
         }
@@ -820,7 +820,7 @@ impl BlockchainStorageManager {
         let successful_backups = results.iter().filter(|r| r.success).count();
         let total_backups = results.len();
 
-        info!("✅ Blockchain backup completed: {}/{} operations successful", 
+        info!("Blockchain backup completed: {}/{} operations successful", 
               successful_backups, total_backups);
 
         Ok(results)
@@ -828,11 +828,11 @@ impl BlockchainStorageManager {
 
     /// Restore blockchain from storage
     pub async fn restore_blockchain(&mut self, state_content_hash: ContentHash) -> Result<Blockchain> {
-        info!("🔄 Restoring blockchain from storage");
+        info!("Restoring blockchain from storage");
 
         let blockchain = self.retrieve_blockchain_state(state_content_hash).await?;
 
-        info!("✅ Blockchain restored successfully (height: {})", blockchain.height);
+        info!("Blockchain restored successfully (height: {})", blockchain.height);
         Ok(blockchain)
     }
 
@@ -856,7 +856,7 @@ impl BlockchainStorageManager {
             }
         }
 
-        info!("✅ Storage maintenance completed");
+        info!("Storage maintenance completed");
         Ok(())
     }
 
@@ -912,11 +912,11 @@ impl BlockchainStorageManager {
     pub async fn retrieve_latest_blockchain_state(&self) -> Result<Option<BlockchainState>> {
         // Try to retrieve the latest blockchain state using a well-known content hash
         // In a real implementation, this would be tracked separately
-        info!("📥 Attempting to retrieve latest blockchain state");
+        info!("Attempting to retrieve latest blockchain state");
         
         // For now, return None since we don't have a reliable way to retrieve without a content hash
         // This would need to be implemented with a metadata system in lib-storage
-        warn!("⚠️ Latest state retrieval not implemented - requires metadata system");
+        warn!("Error: Latest state retrieval not implemented - requires metadata system");
         Ok(None)
     }
 
@@ -924,8 +924,8 @@ impl BlockchainStorageManager {
     pub async fn retrieve_latest_utxo_set(&self) -> Result<Option<HashMap<Hash, crate::transaction::TransactionOutput>>> {
         // For now, return None since we don't have a reliable way to retrieve without a content hash
         // This would need to be implemented with a metadata system in lib-storage
-        info!("📥 Attempting to retrieve latest UTXO set");
-        warn!("⚠️ Latest UTXO set retrieval not implemented - requires metadata system");
+        info!("Attempting to retrieve latest UTXO set");
+        warn!("Error: Latest UTXO set retrieval not implemented - requires metadata system");
         Ok(None)
     }
 
@@ -935,7 +935,7 @@ impl BlockchainStorageManager {
         
         // In a real implementation, this would iterate through stored identity keys
         // For now, return empty map as this requires storage metadata support
-        info!("⚠️ retrieve_all_identities requires storage indexing implementation");
+        info!("Error: retrieve_all_identities requires storage indexing implementation");
         
         Ok(identities)
     }
