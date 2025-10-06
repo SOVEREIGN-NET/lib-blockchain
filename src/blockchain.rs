@@ -45,6 +45,10 @@ pub struct Blockchain {
     pub identity_registry: HashMap<String, IdentityTransactionData>,
     /// Identity DID to block height mapping for verification
     pub identity_blocks: HashMap<String, u64>,
+    /// On-chain wallet registry (wallet_id -> Wallet data)
+    pub wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+    /// Wallet ID to block height mapping for verification
+    pub wallet_blocks: HashMap<String, u64>,
     /// Economics transaction storage (handled by lib-economy)
     pub economics_transactions: Vec<EconomicsTransaction>,
     /// Economic transaction processor for lib-economy integration
@@ -92,6 +96,8 @@ impl Blockchain {
             pending_transactions: Vec::new(),
             identity_registry: HashMap::new(),
             identity_blocks: HashMap::new(),
+            wallet_registry: HashMap::new(),
+            wallet_blocks: HashMap::new(),
             economics_transactions: Vec::new(),
             economic_processor: Some(EconomicTransactionProcessor::new()),
             consensus_coordinator: None,
@@ -120,24 +126,24 @@ impl Blockchain {
         self.storage_manager = Some(std::sync::Arc::new(tokio::sync::RwLock::new(storage_manager)));
         self.auto_persist_enabled = true;
         
-        info!("✅ Storage manager initialized successfully");
+        info!("Storage manager initialized successfully");
         Ok(())
     }
 
     /// Initialize the recursive proof aggregator for O(1) state verification
     pub fn initialize_proof_aggregator(&mut self) -> Result<()> {
-        info!("🔗 Initializing recursive proof aggregator");
+        info!("Initializing recursive proof aggregator");
         
         let aggregator = lib_proofs::RecursiveProofAggregator::new()?;
         self.proof_aggregator = Some(std::sync::Arc::new(tokio::sync::RwLock::new(aggregator)));
         
-        info!("✅ Recursive proof aggregator initialized successfully");
+        info!("Recursive proof aggregator initialized successfully");
         Ok(())
     }
 
     /// Load blockchain from persistent storage
     pub async fn load_from_storage(storage_config: BlockchainStorageConfig, content_hash: lib_storage::types::ContentHash) -> Result<Self> {
-        info!("📥 Loading blockchain from storage");
+        info!("Loading blockchain from storage");
         
         let mut storage_manager = BlockchainStorageManager::new(storage_config).await?;
         let mut blockchain = storage_manager.retrieve_blockchain_state(content_hash).await?;
@@ -149,7 +155,7 @@ impl Blockchain {
         blockchain.auto_persist_enabled = true;
         blockchain.blocks_since_last_persist = 0;
         
-        info!("✅ Blockchain loaded from storage (height: {})", blockchain.height);
+        info!("Blockchain loaded from storage (height: {})", blockchain.height);
         Ok(blockchain)
     }
 
@@ -163,7 +169,7 @@ impl Blockchain {
             
             self.blocks_since_last_persist = 0;
             
-            info!("✅ Blockchain state persisted successfully");
+            info!("Blockchain state persisted successfully");
             Ok(result)
         } else {
             Err(anyhow::anyhow!("Storage manager not initialized"))
@@ -179,7 +185,7 @@ impl Blockchain {
             let results = storage_manager.backup_blockchain(self).await?;
             
             let successful_backups = results.iter().filter(|r| r.success).count();
-            info!("✅ Blockchain backup completed: {}/{} operations successful", 
+            info!("Blockchain backup completed: {}/{} operations successful", 
                   successful_backups, results.len());
             
             Ok(results)
@@ -200,7 +206,7 @@ impl Blockchain {
             drop(storage_manager);
             
             if self.blocks_since_last_persist >= persist_frequency {
-                info!("🔄 Auto-persisting blockchain state (blocks since last persist: {})", 
+                info!(" Auto-persisting blockchain state (blocks since last persist: {})", 
                       self.blocks_since_last_persist);
                 self.persist_to_storage().await?;
             }
@@ -268,7 +274,7 @@ impl Blockchain {
             
             storage_manager.store_latest_blockchain_state(&state).await?;
             
-            info!("📊 Blockchain state persisted to storage");
+            info!("Blockchain state persisted to storage");
             return Ok(Some(()));
         }
         Ok(None)
@@ -292,7 +298,7 @@ impl Blockchain {
             let mut storage_manager = storage_manager_arc.write().await;
             storage_manager.perform_maintenance().await?;
             
-            info!("✅ Storage maintenance completed");
+            info!("Storage maintenance completed");
         }
         Ok(())
     }
@@ -336,6 +342,7 @@ impl Blockchain {
 
         // Process identity transactions
         self.process_identity_transactions(&block)?;
+        self.process_wallet_transactions(&block)?;
 
         // Update persistence counter
         self.blocks_since_last_persist += 1;
@@ -368,16 +375,16 @@ impl Blockchain {
 
     /// Verify a block against the current chain state
     pub fn verify_block(&self, block: &Block, previous_block: Option<&Block>) -> Result<bool> {
-        info!("🔍 Starting block verification for height {}", block.height());
+        info!("Starting block verification for height {}", block.height());
         
         // Verify block header
         if let Some(prev) = previous_block {
             if block.previous_hash() != prev.hash() {
-                warn!("🔍 Previous hash mismatch: block={:?}, prev={:?}", block.previous_hash(), prev.hash());
+                warn!("Previous hash mismatch: block={:?}, prev={:?}", block.previous_hash(), prev.hash());
                 return Ok(false);
             }
             if block.height() != prev.height() + 1 {
-                warn!("🔍 Height mismatch: block={}, expected={}", block.height(), prev.height() + 1);
+                warn!("Height mismatch: block={}, expected={}", block.height(), prev.height() + 1);
                 return Ok(false);
             }
         }
@@ -385,13 +392,13 @@ impl Blockchain {
         // Verify proof of work - skip for consensus/system blocks with easy difficulty
         if block.difficulty().bits() < 0x1fffffff {
             if !block.header.meets_difficulty_target() {
-                warn!("🔍 Block does not meet difficulty target");
+                warn!("Block does not meet difficulty target");
                 return Ok(false);
             }
         } else {
             // For consensus blocks with easy difficulty, just check it's reasonable
             if block.difficulty().bits() != 0x1fffffff {
-                warn!("🔍 Easy difficulty mismatch: {}", block.difficulty().bits());
+                warn!("Easy difficulty mismatch: {}", block.difficulty().bits());
                 return Ok(false);
             }
         }
@@ -399,18 +406,18 @@ impl Blockchain {
         // Verify all transactions
         for (i, tx) in block.transactions.iter().enumerate() {
             if !self.verify_transaction(tx)? {
-                warn!("🔍 Transaction {} failed verification in block", i);
+                warn!("Transaction {} failed verification in block", i);
                 return Ok(false);
             }
         }
 
         // Verify Merkle root
         if !block.verify_merkle_root() {
-            warn!("🔍 Merkle root verification failed");
+            warn!("Merkle root verification failed");
             return Ok(false);
         }
 
-        info!("🔍 Block verification successful for height {}", block.height());
+        info!("Block verification successful for height {}", block.height());
         Ok(true)
     }
 
@@ -422,22 +429,22 @@ impl Blockchain {
         // Check if this is a system transaction (empty inputs indicates system transaction)
         let is_system_transaction = transaction.inputs.is_empty();
         
-        tracing::info!("🔍 Verifying transaction with identity verification enabled");
-        tracing::info!("🔍 System transaction: {}", is_system_transaction);
-        tracing::info!("🔍 Transaction type: {:?}", transaction.transaction_type);
+        tracing::info!("Verifying transaction with identity verification enabled");
+        tracing::info!("System transaction: {}", is_system_transaction);
+        tracing::info!("Transaction type: {:?}", transaction.transaction_type);
         
         let result = validator.validate_transaction_with_state(transaction);
         
         if let Err(ref error) = result {
-            tracing::warn!("🔍 Transaction validation failed: {:?}", error);
-            tracing::warn!("🔍 Transaction details: inputs={}, outputs={}, fee={}, type={:?}, system={}", 
+            tracing::warn!("Transaction validation failed: {:?}", error);
+            tracing::warn!("Transaction details: inputs={}, outputs={}, fee={}, type={:?}, system={}", 
                 transaction.inputs.len(), 
                 transaction.outputs.len(), 
                 transaction.fee,
                 transaction.transaction_type,
                 is_system_transaction);
         } else {
-            tracing::info!("✅ Transaction validation passed with identity verification");
+            tracing::info!("Transaction validation passed with identity verification");
         }
         
         Ok(result.is_ok())
@@ -555,7 +562,7 @@ impl Blockchain {
 
     /// Add system transaction to pending pool without validation (for identity registration, etc.)
     pub fn add_system_transaction(&mut self, transaction: Transaction) -> Result<()> {
-        tracing::info!("🔗 Adding system transaction to pending pool (bypassing validation)");
+        tracing::info!("Adding system transaction to pending pool (bypassing validation)");
         self.pending_transactions.push(transaction);
         Ok(())
     }
@@ -782,6 +789,99 @@ impl Blockchain {
         Ok(())
     }
 
+    // ===== WALLET MANAGEMENT METHODS =====
+
+    /// Register a new wallet on the blockchain
+    pub fn register_wallet(&mut self, wallet_data: crate::transaction::WalletTransactionData) -> Result<Hash> {
+        // Check if wallet already exists
+        let wallet_id_str = hex::encode(wallet_data.wallet_id.as_bytes());
+        if self.wallet_registry.contains_key(&wallet_id_str) {
+            return Err(anyhow::anyhow!("Wallet {} already exists on blockchain", wallet_id_str));
+        }
+
+        // Create wallet registration transaction
+        let registration_tx = Transaction::new_wallet_registration(
+            wallet_data.clone(),
+            vec![], // Fee outputs handled separately
+            Signature {
+                signature: wallet_data.public_key.clone(),
+                public_key: PublicKey::new(wallet_data.public_key.clone()),
+                algorithm: SignatureAlgorithm::Dilithium2,
+                timestamp: wallet_data.created_at,
+            },
+            format!("Wallet registration for {}", wallet_data.wallet_name).into_bytes(),
+        );
+
+        // Add to pending transactions for inclusion in next block
+        self.add_pending_transaction(registration_tx.clone())?;
+
+        // Store in wallet registry immediately for queries
+        self.wallet_registry.insert(wallet_id_str.clone(), wallet_data.clone());
+        self.wallet_blocks.insert(wallet_id_str, self.height + 1);
+
+        Ok(registration_tx.hash())
+    }
+
+    /// Get wallet by ID
+    pub fn get_wallet(&self, wallet_id: &str) -> Option<&crate::transaction::WalletTransactionData> {
+        self.wallet_registry.get(wallet_id)
+    }
+
+    /// Check if wallet exists
+    pub fn wallet_exists(&self, wallet_id: &str) -> bool {
+        self.wallet_registry.contains_key(wallet_id)
+    }
+
+    /// Get all wallets on the blockchain
+    pub fn list_all_wallets(&self) -> Vec<&crate::transaction::WalletTransactionData> {
+        self.wallet_registry.values().collect()
+    }
+
+    /// Get all wallets as HashMap
+    pub fn get_all_wallets(&self) -> &HashMap<String, crate::transaction::WalletTransactionData> {
+        &self.wallet_registry
+    }
+
+    /// Get wallet block confirmation count
+    pub fn get_wallet_confirmations(&self, wallet_id: &str) -> Option<u64> {
+        self.wallet_blocks.get(wallet_id).map(|block_height| {
+            if self.height >= *block_height {
+                self.height - block_height + 1
+            } else {
+                0
+            }
+        })
+    }
+
+    /// Get wallets for a specific owner identity
+    pub fn get_wallets_for_owner(&self, owner_identity_id: &Hash) -> Vec<&crate::transaction::WalletTransactionData> {
+        self.wallet_registry.values()
+            .filter(|wallet| {
+                wallet.owner_identity_id.as_ref() == Some(owner_identity_id)
+            })
+            .collect()
+    }
+
+    /// Process wallet transactions in a block
+    pub fn process_wallet_transactions(&mut self, block: &Block) -> Result<()> {
+        for transaction in &block.transactions {
+            if transaction.transaction_type == TransactionType::WalletRegistration {
+                if let Some(ref wallet_data) = transaction.wallet_data {
+                    let wallet_id_str = hex::encode(wallet_data.wallet_id.as_bytes());
+                    self.wallet_registry.insert(
+                        wallet_id_str.clone(),
+                        wallet_data.clone()
+                    );
+                    self.wallet_blocks.insert(
+                        wallet_id_str,
+                        block.height()
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Get access to the recursive proof aggregator for O(1) verification
     pub async fn get_proof_aggregator(&mut self) -> Result<std::sync::Arc<tokio::sync::RwLock<lib_proofs::RecursiveProofAggregator>>> {
         if self.proof_aggregator.is_none() {
@@ -794,7 +894,7 @@ impl Blockchain {
 
     /// Enable O(1) verification for the blockchain by processing all blocks through recursive aggregation
     pub async fn enable_instant_verification(&mut self) -> Result<()> {
-        info!("🚀 Enabling O(1) instant verification for blockchain");
+        info!(" Enabling O(1) instant verification for blockchain");
         
         // Initialize aggregator if not already done
         let aggregator_arc = self.get_proof_aggregator().await?;
@@ -804,7 +904,7 @@ impl Blockchain {
         let mut previous_chain_proof: Option<lib_proofs::ChainRecursiveProof> = None;
         
         for (i, block) in self.blocks.iter().enumerate() {
-            info!("🔗 Processing block {} for recursive proof aggregation", i);
+            info!("Processing block {} for recursive proof aggregation", i);
             
             // Convert block transactions to the format expected by the aggregator
             let batched_transactions: Vec<BatchedPrivateTransaction> = 
@@ -845,22 +945,22 @@ impl Blockchain {
                 block.header.timestamp,
             ) {
                 Ok(block_proof) => {
-                    info!("✅ Block {} proof aggregated successfully", i);
+                    info!("Block {} proof aggregated successfully", i);
 
                     // Create recursive chain proof
                     match aggregator.create_recursive_chain_proof(&block_proof, previous_chain_proof.as_ref()) {
                         Ok(chain_proof) => {
-                            info!("🚀 Recursive chain proof created for block {}", i);
+                            info!(" Recursive chain proof created for block {}", i);
                             previous_chain_proof = Some(chain_proof);
                         }
                         Err(e) => {
-                            error!("❌ Failed to create recursive chain proof for block {}: {}", i, e);
+                            error!("Failed to create recursive chain proof for block {}: {}", i, e);
                             return Err(anyhow::anyhow!("Failed to create recursive chain proof: {}", e));
                         }
                     }
                 }
                 Err(e) => {
-                    error!("❌ Failed to aggregate block {} proof: {}", i, e);
+                    error!("Failed to aggregate block {} proof: {}", i, e);
                     return Err(anyhow::anyhow!("Failed to aggregate block proof: {}", e));
                 }
             }
@@ -871,20 +971,20 @@ impl Blockchain {
             let verifier = lib_proofs::InstantStateVerifier::new()?;
             match verifier.verify_current_state(&final_chain_proof) {
                 Ok(true) => {
-                    info!("✅ Final recursive chain proof verification successful");
+                    info!("Final recursive chain proof verification successful");
                 }
                 Ok(false) => {
-                    warn!("⚠️ Final recursive chain proof verification failed");
+                    warn!("Final recursive chain proof verification failed");
                     return Err(anyhow::anyhow!("Recursive chain proof verification failed"));
                 }
                 Err(e) => {
-                    error!("❌ Error verifying final recursive chain proof: {}", e);
+                    error!("Error verifying final recursive chain proof: {}", e);
                     return Err(anyhow::anyhow!("Error verifying recursive chain proof: {}", e));
                 }
             }
         }
         
-        info!("✅ O(1) instant verification enabled for entire blockchain with {} blocks", self.blocks.len());
+        info!("O(1) instant verification enabled for entire blockchain with {} blocks", self.blocks.len());
         Ok(())
     }
 
@@ -1090,7 +1190,7 @@ impl Blockchain {
             ).await?;
             
             self.consensus_coordinator = Some(std::sync::Arc::new(tokio::sync::RwLock::new(coordinator)));
-            info!("🚀 Consensus coordinator initialized for blockchain");
+            info!(" Consensus coordinator initialized for blockchain");
         }
         Ok(())
     }
@@ -1105,7 +1205,7 @@ impl Blockchain {
         if let Some(ref coordinator_arc) = self.consensus_coordinator {
             let mut coordinator = coordinator_arc.write().await;
             coordinator.start_consensus_coordinator().await?;
-            info!("✅ Consensus coordinator started for blockchain");
+            info!("Consensus coordinator started for blockchain");
         } else {
             return Err(anyhow::anyhow!("Consensus coordinator not initialized"));
         }
@@ -1130,7 +1230,7 @@ impl Blockchain {
                 consensus_keypair,
                 commission_rate,
             ).await?;
-            info!("✅ Registered as validator with consensus coordinator");
+            info!("Registered as validator with consensus coordinator");
         } else {
             return Err(anyhow::anyhow!("Consensus coordinator not initialized"));
         }
@@ -1204,13 +1304,13 @@ impl Blockchain {
             
             // Verify block height matches consensus expectations
             if block.height() != status.current_height {
-                warn!("❌ Block height mismatch: block={}, consensus={}", 
+                warn!("Block height mismatch: block={}, consensus={}", 
                       block.height(), status.current_height);
                 return Ok(false);
             }
 
             // Additional consensus-specific validations would go here
-            info!("✅ Block passed consensus verification at height {}", block.height());
+            info!("Block passed consensus verification at height {}", block.height());
         }
 
         Ok(true)
@@ -1229,11 +1329,11 @@ impl Blockchain {
     pub async fn recover_from_storage(&mut self) -> Result<bool> {
         if let Some(storage_manager_arc) = &self.storage_manager {
             let mut _storage_manager = storage_manager_arc.write().await;
-            info!("🔄 Starting blockchain recovery from storage...");
+            info!(" Starting blockchain recovery from storage...");
 
             // For now, return false since the retrieval methods need proper implementation
             // TODO: Implement proper blockchain state recovery
-            info!("⚠️ Blockchain recovery needs complete retrieval method implementation");
+            info!("Blockchain recovery needs complete retrieval method implementation");
             return Ok(false);
         }
 
@@ -1242,7 +1342,7 @@ impl Blockchain {
 
     /// Verify blockchain integrity after recovery
     pub async fn verify_blockchain_integrity(&self) -> Result<bool> {
-        info!("🔍 Verifying blockchain integrity...");
+        info!("Verifying blockchain integrity...");
 
         // Verify block chain continuity
         for i in 1..self.blocks.len() {
@@ -1250,12 +1350,12 @@ impl Blockchain {
             let previous = &self.blocks[i - 1];
 
             if current.previous_hash() != previous.hash() {
-                error!("❌ Block chain continuity broken at height {}", i);
+                error!("Block chain continuity broken at height {}", i);
                 return Ok(false);
             }
 
             if current.height() != previous.height() + 1 {
-                error!("❌ Block height sequence broken at height {}", i);
+                error!("Block height sequence broken at height {}", i);
                 return Ok(false);
             }
         }
@@ -1280,18 +1380,18 @@ impl Blockchain {
         }
 
         if rebuilt_utxo_set.len() != self.utxo_set.len() {
-            error!("❌ UTXO set size mismatch: expected={}, actual={}", 
+            error!("UTXO set size mismatch: expected={}, actual={}", 
                    rebuilt_utxo_set.len(), self.utxo_set.len());
             return Ok(false);
         }
 
         if rebuilt_nullifier_set.len() != self.nullifier_set.len() {
-            error!("❌ Nullifier set size mismatch: expected={}, actual={}", 
+            error!("Nullifier set size mismatch: expected={}, actual={}", 
                    rebuilt_nullifier_set.len(), self.nullifier_set.len());
             return Ok(false);
         }
 
-        info!("✅ Blockchain integrity verification passed");
+        info!("Blockchain integrity verification passed");
         Ok(true)
     }
 
@@ -1305,34 +1405,34 @@ impl Blockchain {
             let backup_result = storage_manager.backup_blockchain(self).await?;
             let successful_backups = backup_result.iter().filter(|r| r.success).count();
             
-            info!("✅ Full blockchain backup completed: {}/{} operations successful", successful_backups, backup_result.len());
+            info!("Full blockchain backup completed: {}/{} operations successful", successful_backups, backup_result.len());
             return Ok(true);
         }
 
-        warn!("⚠️ No storage manager available for backup");
+        warn!("No storage manager available for backup");
         Ok(false)
     }
 
     /// Restore blockchain from a backup
     pub async fn restore_from_backup(&mut self, backup_id: &str) -> Result<bool> {
         if let Some(_storage_manager) = &self.storage_manager {
-            info!("🔄 Restoring blockchain from backup: {}", backup_id);
+            info!(" Restoring blockchain from backup: {}", backup_id);
 
             // Implementation would depend on storage manager's backup format
             // This is a placeholder for the restore functionality
-            info!("⚠️ Backup restore functionality needs implementation in storage manager");
+            info!("Backup restore functionality needs implementation in storage manager");
             
             return Ok(false);
         }
 
-        warn!("⚠️ No storage manager available for restore");
+        warn!("No storage manager available for restore");
         Ok(false)
     }
 
     /// Synchronize blockchain with storage (ensure consistency)
     pub async fn synchronize_with_storage(&mut self) -> Result<()> {
         if let Some(storage_manager_arc) = self.storage_manager.clone() {
-            info!("🔄 Synchronizing blockchain with storage...");
+            info!(" Synchronizing blockchain with storage...");
 
             // Persist current state
             self.persist_to_storage().await?;
@@ -1349,7 +1449,7 @@ impl Blockchain {
                 let _ = storage_manager.store_identity_data(did, identity_data).await;
             }
 
-            info!("✅ Blockchain synchronization with storage completed");
+            info!("Blockchain synchronization with storage completed");
         }
 
         Ok(())
@@ -1361,9 +1461,9 @@ impl Blockchain {
     pub fn set_auto_persist(&mut self, enabled: bool) {
         self.auto_persist_enabled = enabled;
         if enabled {
-            info!("✅ Automatic persistence enabled");
+            info!("Automatic persistence enabled");
         } else {
-            info!("⚠️ Automatic persistence disabled");
+            info!("Automatic persistence disabled");
         }
     }
 
@@ -1393,16 +1493,16 @@ impl Blockchain {
             // Perform a simple storage health check
             match storage_manager.store_test_data().await {
                 Ok(_) => {
-                    info!("✅ Storage health check passed");
+                    info!("Storage health check passed");
                     Ok(true)
                 }
                 Err(e) => {
-                    error!("❌ Storage health check failed: {}", e);
+                    error!("Storage health check failed: {}", e);
                     Ok(false)
                 }
             }
         } else {
-            warn!("⚠️ No storage manager configured");
+            warn!("No storage manager configured");
             Ok(false)
         }
     }
@@ -1414,7 +1514,7 @@ impl Blockchain {
             
             // This would implement cleanup logic in the storage manager
             // For now, just log the operation
-            info!("⚠️ Storage cleanup implementation needed in storage manager");
+            info!("Storage cleanup implementation needed in storage manager");
         }
         Ok(())
     }

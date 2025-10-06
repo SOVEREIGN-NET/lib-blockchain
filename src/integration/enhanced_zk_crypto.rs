@@ -431,6 +431,7 @@ impl EnhancedTransactionCreator {
             },
             memo: Vec::new(),
             identity_data: None,
+            wallet_data: None,
         };
         
         // Sign transaction using lib-crypto
@@ -535,9 +536,9 @@ impl EnhancedConsensusValidator {
                 match zk_proof.verify() {
                     Ok(is_valid) => {
                         if is_valid {
-                            debug!("✅ Consensus proof validation successful");
+                            debug!("Consensus proof validation successful");
                         } else {
-                            error!("❌ Consensus proof validation failed - proof is invalid");
+                            error!("Consensus proof validation failed - proof is invalid");
                         }
                         Ok(is_valid)
                     }
@@ -583,7 +584,7 @@ impl EnhancedConsensusValidator {
             let nullifier_valid = input.zk_proof.nullifier_proof.verify().unwrap_or(false);
             
             if !amount_valid || !balance_valid || !nullifier_valid {
-                error!("❌ Individual ZK proof component validation failed for input {}: amount={}, balance={}, nullifier={}", 
+                error!("Individual ZK proof component validation failed for input {}: amount={}, balance={}, nullifier={}", 
                        i, amount_valid, balance_valid, nullifier_valid);
                 return Ok(false);
             }

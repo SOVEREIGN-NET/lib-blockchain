@@ -23,6 +23,12 @@ pub enum ValidationError {
     InvalidTransactionType,
     UnregisteredSender,
     InvalidMemo,
+    MissingWalletData,
+    InvalidWalletId,
+    InvalidOwnerIdentity,
+    InvalidPublicKey,
+    InvalidSeedCommitment,
+    InvalidWalletType,
 }
 
 impl std::fmt::Display for ValidationError {
@@ -41,6 +47,12 @@ impl std::fmt::Display for ValidationError {
             ValidationError::InvalidTransactionType => write!(f, "Invalid transaction type"),
             ValidationError::UnregisteredSender => write!(f, "Transaction from unregistered sender identity"),
             ValidationError::InvalidMemo => write!(f, "Invalid or missing transaction memo"),
+            ValidationError::MissingWalletData => write!(f, "Missing wallet data in transaction"),
+            ValidationError::InvalidWalletId => write!(f, "Invalid wallet ID"),
+            ValidationError::InvalidOwnerIdentity => write!(f, "Invalid owner identity"),
+            ValidationError::InvalidPublicKey => write!(f, "Invalid public key"),
+            ValidationError::InvalidSeedCommitment => write!(f, "Invalid seed commitment"),
+            ValidationError::InvalidWalletType => write!(f, "Invalid wallet type"),
         }
     }
 }
@@ -103,6 +115,10 @@ impl TransactionValidator {
                     return Err(ValidationError::InvalidMemo);
                 }
             },
+            TransactionType::WalletRegistration => {
+                // Wallet registration transactions - validate wallet data and ownership
+                self.validate_wallet_registration_transaction(transaction)?;
+            },
         }
 
         // Signature validation (always required)
@@ -150,6 +166,10 @@ impl TransactionValidator {
                 if transaction.memo.is_empty() {
                     return Err(ValidationError::InvalidMemo);
                 }
+            },
+            TransactionType::WalletRegistration => {
+                // Wallet registration transactions - validate wallet data and ownership
+                self.validate_wallet_registration_transaction(transaction)?;
             },
         }
 
@@ -352,47 +372,47 @@ impl TransactionValidator {
         use lib_proofs::ZkTransactionProof;
         
         println!("🚨 DEBUG: Starting ZK proof validation for {} transaction inputs", transaction.inputs.len());
-        log::info!("🔍 Starting ZK proof validation for {} transaction inputs", transaction.inputs.len());
+        log::info!("Starting ZK proof validation for {} transaction inputs", transaction.inputs.len());
         
         for (i, input) in transaction.inputs.iter().enumerate() {
             println!("🚨 DEBUG: Validating ZK proof for input {}", i);
-            log::info!("🔍 Validating ZK proof for input {}", i);
+            log::info!("Validating ZK proof for input {}", i);
             
             // First check if the proof structure is valid
             if !is_valid_proof_structure(&input.zk_proof) {
                 println!("🚨 DEBUG: Input {}: Invalid proof structure", i);
-                log::error!("❌ Input {}: Invalid proof structure", i);
+                log::error!("Input {}: Invalid proof structure", i);
                 return Err(ValidationError::InvalidZkProof);
             }
             println!("🚨 DEBUG: Input {}: Proof structure valid", i);
-            log::info!("✅ Input {}: Proof structure valid", i);
+            log::info!("Input {}: Proof structure valid", i);
             
             // Use the proper ZK verification from lib-proofs
             match ZkTransactionProof::verify_transaction(&input.zk_proof) {
                 Ok(is_valid) => {
                     if !is_valid {
-                        log::error!("❌ Input {}: ZkTransactionProof verification failed", i);
+                        log::error!("Input {}: ZkTransactionProof verification failed", i);
                         return Err(ValidationError::InvalidZkProof);
                     }
-                    log::info!("✅ Input {}: ZkTransactionProof verification passed", i);
+                    log::info!("Input {}: ZkTransactionProof verification passed", i);
                 },
                 Err(e) => {
-                    log::error!("❌ Input {}: ZK verification failed - NO FALLBACKS ALLOWED: {:?}", i, e);
+                    log::error!("Input {}: ZK verification failed - NO FALLBACKS ALLOWED: {:?}", i, e);
                     return Err(ValidationError::InvalidZkProof);
                 }
             }
             
             // Additional ZK proof validations
-            log::info!("🔍 Input {}: Validating nullifier proof", i);
+            log::info!("Input {}: Validating nullifier proof", i);
             self.validate_nullifier_proof(input)?;
-            log::info!("✅ Input {}: Nullifier proof valid", i);
+            log::info!("Input {}: Nullifier proof valid", i);
             
-            log::info!("🔍 Input {}: Validating amount range proof", i);
+            log::info!("Input {}: Validating amount range proof", i);
             self.validate_amount_range_proof(input)?;
-            log::info!("✅ Input {}: Amount range proof valid", i);
+            log::info!("Input {}: Amount range proof valid", i);
         }
 
-        log::info!("✅ All ZK proofs validated successfully");
+        log::info!("All ZK proofs validated successfully");
         Ok(())
     }
     
@@ -410,14 +430,14 @@ impl TransactionValidator {
                     },
                     Err(e) => {
                         // NO FALLBACKS - fail hard if ZK verification fails
-                        log::error!("❌ Nullifier ZK verification failed - no fallbacks allowed: {:?}", e);
+                        log::error!("Nullifier ZK verification failed - no fallbacks allowed: {:?}", e);
                         return Err(ValidationError::InvalidZkProof);
                     }
                 }
             }
         } else {
             // NO FALLBACKS - require Plonky2 proofs only
-            log::error!("❌ Nullifier proof missing Plonky2 verification - no fallbacks allowed");
+            log::error!("Nullifier proof missing Plonky2 verification - no fallbacks allowed");
             return Err(ValidationError::InvalidZkProof);
         }
         
@@ -427,91 +447,91 @@ impl TransactionValidator {
     /// Validate amount range proof to ensure positive amounts
     fn validate_amount_range_proof(&self, input: &TransactionInput) -> ValidationResult {
         println!("🚨 DEBUG: validate_amount_range_proof starting");
-        log::info!("🔍 validate_amount_range_proof starting");
+        log::info!("validate_amount_range_proof starting");
         
         // Verify that the amount is within valid range (positive, not exceeding max supply)
         if let Some(plonky2_proof) = &input.zk_proof.amount_proof.plonky2_proof {
             println!("🚨 DEBUG: Found Plonky2 amount proof for range validation");
             println!("🚨 DEBUG: Amount proof system: '{}'", plonky2_proof.proof_system);
-            log::info!("✅ Found Plonky2 amount proof for range validation");
-            log::info!("🔍 Amount proof system: '{}'", plonky2_proof.proof_system);
+            log::info!("Found Plonky2 amount proof for range validation");
+            log::info!("Amount proof system: '{}'", plonky2_proof.proof_system);
             
             // Use real Plonky2 verification if available
             if let Ok(zk_system) = lib_proofs::ZkProofSystem::new() {
                 println!("🚨 DEBUG: ZkProofSystem initialized for range validation");
-                log::info!("✅ ZkProofSystem initialized for range validation");
+                log::info!("ZkProofSystem initialized for range validation");
                 
                 // Check if this is a transaction proof or range proof and use appropriate verification
                 match plonky2_proof.proof_system.as_str() {
                     "ZHTP-Optimized-Range" => {
                         println!("🚨 DEBUG: Using verify_range for range proof");
-                        log::info!("🔍 Using verify_range for range proof");
+                        log::info!("Using verify_range for range proof");
                         
                         match zk_system.verify_range(plonky2_proof) {
                             Ok(is_valid) => {
                                 println!("🚨 DEBUG: Range verification result: {}", is_valid);
-                                log::info!("🔍 Range verification result: {}", is_valid);
+                                log::info!("Range verification result: {}", is_valid);
                                 
                                 if !is_valid {
                                     println!("🚨 DEBUG: Range proof INVALID - returning error");
-                                    log::error!("❌ Range proof INVALID - returning error");
+                                    log::error!("Range proof INVALID - returning error");
                                     return Err(ValidationError::InvalidZkProof);
                                 } else {
                                     println!("🚨 DEBUG: Range proof VALID");
-                                    log::info!("✅ Range proof VALID");
+                                    log::info!("Range proof VALID");
                                 }
                             },
                             Err(e) => {
                                 println!("🚨 DEBUG: Range verification error: {:?}", e);
-                                log::error!("❌ Range verification error: {:?}", e);
+                                log::error!("Range verification error: {:?}", e);
                                 return Err(ValidationError::InvalidZkProof);
                             }
                         }
                     },
                     "ZHTP-Optimized-Transaction" | "Plonky2" => {
                         println!("🚨 DEBUG: Using verify_transaction for transaction proof");
-                        log::info!("🔍 Using verify_transaction for transaction proof");
+                        log::info!("Using verify_transaction for transaction proof");
                         
                         match zk_system.verify_transaction(plonky2_proof) {
                             Ok(is_valid) => {
                                 println!("🚨 DEBUG: Transaction verification result: {}", is_valid);
-                                log::info!("🔍 Transaction verification result: {}", is_valid);
+                                log::info!("Transaction verification result: {}", is_valid);
                                 
                                 if !is_valid {
                                     println!("🚨 DEBUG: Transaction proof INVALID - returning error");
-                                    log::error!("❌ Transaction proof INVALID - returning error");
+                                    log::error!("Transaction proof INVALID - returning error");
                                     return Err(ValidationError::InvalidZkProof);
                                 } else {
                                     println!("🚨 DEBUG: Transaction proof VALID");
-                                    log::info!("✅ Transaction proof VALID");
+                                    log::info!("Transaction proof VALID");
                                 }
                             },
                             Err(e) => {
                                 println!("🚨 DEBUG: Transaction verification error: {:?}", e);
-                                log::error!("❌ Transaction verification error: {:?}", e);
+                                log::error!("Transaction verification error: {:?}", e);
                                 return Err(ValidationError::InvalidZkProof);
                             }
                         }
                     },
                     _ => {
                         println!("🚨 DEBUG: Unknown proof system: '{}'", plonky2_proof.proof_system);
-                        log::error!("❌ Unknown proof system: '{}'", plonky2_proof.proof_system);
+                        log::error!("Unknown proof system: '{}'", plonky2_proof.proof_system);
                         return Err(ValidationError::InvalidZkProof);
                     }
                 }
             } else {
                 println!("🚨 DEBUG: Failed to initialize ZkProofSystem");
-                log::error!("❌ Failed to initialize ZkProofSystem");
+                log::error!("Failed to initialize ZkProofSystem");
                 return Err(ValidationError::InvalidZkProof);
             }
         } else {
             println!("🚨 DEBUG: No Plonky2 proof found - NO FALLBACKS ALLOWED");
-            log::error!("❌ Amount proof missing Plonky2 verification - no fallbacks allowed");
+            log::error!("Amount proof missing Plonky2 verification - no fallbacks allowed");
             return Err(ValidationError::InvalidZkProof);
         }
         
         println!("🚨 DEBUG: validate_amount_range_proof completed successfully");
-        log::info!("✅ validate_amount_range_proof completed successfully");
+        log::info!("validate_amount_range_proof completed successfully");
         Ok(())
     }
 
@@ -528,23 +548,21 @@ impl TransactionValidator {
 
         // Regular transaction fee validation
         let min_fee = calculate_minimum_fee(transaction.size());
-        println!("🔍 FEE VALIDATION DEBUG:");
+        println!("FEE VALIDATION DEBUG:");
         println!("   Transaction size: {} bytes", transaction.size());
         println!("   Calculated minimum fee: {} ZHTP", min_fee);
         println!("   Actual transaction fee: {} ZHTP", transaction.fee);
         if transaction.fee < min_fee {
-            println!("❌ FEE VALIDATION FAILED: {} < {}", transaction.fee, min_fee);
+            println!("FEE VALIDATION FAILED: {} < {}", transaction.fee, min_fee);
             return Err(ValidationError::InvalidFee);
         }
-        println!("✅ FEE VALIDATION PASSED");
+        println!("FEE VALIDATION PASSED");
 
         // Economic validation is handled by lib-economy package
         // Here we just check basic fee requirements
 
         Ok(())
     }
-
-
 
     /// Validate individual transaction input
     fn validate_transaction_input(&self, input: &TransactionInput) -> ValidationResult {
@@ -625,6 +643,45 @@ impl TransactionValidator {
 
         Ok(())
     }
+
+    /// Validate wallet registration transaction
+    fn validate_wallet_registration_transaction(&self, transaction: &Transaction) -> ValidationResult {
+        // Check that wallet_data exists
+        let wallet_data = transaction.wallet_data.as_ref()
+            .ok_or(ValidationError::MissingWalletData)?;
+
+        // Validate wallet ID is not default/empty
+        if wallet_data.wallet_id == crate::types::Hash::default() {
+            return Err(ValidationError::InvalidWalletId);
+        }
+
+        // Validate owner identity ID if present
+        if let Some(owner_id) = &wallet_data.owner_identity_id {
+            if *owner_id == crate::types::Hash::default() {
+                return Err(ValidationError::InvalidOwnerIdentity);
+            }
+        }
+
+        // Validate public key is not empty
+        if wallet_data.public_key.is_empty() {
+            return Err(ValidationError::InvalidPublicKey);
+        }
+
+        // Validate seed commitment is not default
+        if wallet_data.seed_commitment == crate::types::Hash::default() {
+            return Err(ValidationError::InvalidSeedCommitment);
+        }
+
+        // Validate wallet type is recognized
+        match wallet_data.wallet_type.as_str() {
+            "Primary" | "UBI" | "Savings" | "DAO" => {
+                // Valid wallet types
+            }
+            _ => return Err(ValidationError::InvalidWalletType),
+        }
+
+        Ok(())
+    }
 }
 
 impl Default for TransactionValidator {
@@ -679,6 +736,10 @@ impl<'a> StatefulTransactionValidator<'a> {
                     return Err(ValidationError::InvalidMemo);
                 }
             },
+            TransactionType::WalletRegistration => {
+                // Wallet registration transactions - validate wallet data and ownership
+                stateless_validator.validate_transaction(transaction)?;
+            },
         }
 
         // 🔥 CRITICAL FIX: Verify sender identity exists on blockchain
@@ -708,7 +769,7 @@ impl<'a> StatefulTransactionValidator<'a> {
         let blockchain = match self.blockchain {
             Some(blockchain) => blockchain,
             None => {
-                tracing::warn!("⚠️ SECURITY WARNING: Identity verification skipped - no blockchain state available");
+                tracing::warn!("SECURITY WARNING: Identity verification skipped - no blockchain state available");
                 return Ok(());
             }
         };
@@ -717,7 +778,7 @@ impl<'a> StatefulTransactionValidator<'a> {
         let sender_public_key = transaction.signature.public_key.as_bytes();
         
         if sender_public_key.is_empty() {
-            tracing::error!("❌ SECURITY: Transaction has empty public key");
+            tracing::error!("SECURITY: Transaction has empty public key");
             return Err(ValidationError::InvalidSignature);
         }
 
@@ -727,11 +788,11 @@ impl<'a> StatefulTransactionValidator<'a> {
             if identity_data.public_key == sender_public_key {
                 // Check if identity is not revoked
                 if identity_data.identity_type == "revoked" {
-                    tracing::error!("❌ SECURITY: Transaction from revoked identity: {}", did);
+                    tracing::error!("SECURITY: Transaction from revoked identity: {}", did);
                     return Err(ValidationError::InvalidTransaction);
                 }
                 
-                tracing::info!("✅ SECURITY: Sender identity verified: {} ({})", 
+                tracing::info!("SECURITY: Sender identity verified: {} ({})", 
                     identity_data.display_name, did);
                 identity_found = true;
                 break;
@@ -739,12 +800,12 @@ impl<'a> StatefulTransactionValidator<'a> {
         }
 
         if !identity_found {
-            tracing::error!("❌ SECURITY CRITICAL: Transaction from unregistered identity!");
-            tracing::error!("❌ Public key: {:02x?}", sender_public_key);
-            tracing::error!("❌ This transaction should be REJECTED - sender identity does not exist on blockchain");
+            tracing::error!("SECURITY CRITICAL: Transaction from unregistered identity!");
+            tracing::error!("Public key: {:02x?}", sender_public_key);
+            tracing::error!("This transaction should be REJECTED - sender identity does not exist on blockchain");
             
             // Log all registered identities for debugging
-            tracing::info!("🔍 DEBUG: Currently registered identities:");
+            tracing::info!("DEBUG: Currently registered identities:");
             for (did, identity_data) in blockchain.get_all_identities() {
                 tracing::info!("   - {} ({}): {:02x?}", 
                     identity_data.display_name, 
@@ -794,6 +855,10 @@ pub mod utils {
             TransactionType::ContentUpload | TransactionType::UbiDistribution => {
                 // Audit transactions should have memo data but no strict input/output requirements
                 !transaction.memo.is_empty()
+            },
+            TransactionType::WalletRegistration => {
+                // Wallet registration should have wallet_data
+                transaction.wallet_data.is_some()
             }
         }
     }

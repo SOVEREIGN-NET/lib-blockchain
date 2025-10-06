@@ -15,6 +15,8 @@ pub enum ContractType {
     FileSharing,
     /// Governance contract - on-chain governance and voting
     Governance,
+    /// Web4 website contract - decentralized website hosting with DHT integration
+    Web4Website,
 }
 
 impl ContractType {
@@ -27,6 +29,7 @@ impl ContractType {
             ContractType::GroupChat => 2500,          // GAS_GROUP
             ContractType::FileSharing => 3000,        // Same as messaging due to complexity
             ContractType::Governance => 2500,         // Same as group due to voting complexity
+            ContractType::Web4Website => 2500,        // Domain + content routing complexity
         }
     }
 
@@ -52,6 +55,7 @@ impl ContractType {
             ContractType::GroupChat => "Group Chat Contract",
             ContractType::FileSharing => "File Sharing Contract",
             ContractType::Governance => "Governance Contract",
+            ContractType::Web4Website => "Web4 Website Contract",
         }
     }
 }

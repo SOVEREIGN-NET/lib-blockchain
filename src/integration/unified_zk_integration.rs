@@ -45,7 +45,7 @@ impl UnifiedZkBlockchainManager {
         let coordinator = self.zk_coordinator.as_ref()
             .ok_or_else(|| anyhow!("ZK coordinator not set"))?;
 
-        info!("🔧 Creating unified transaction proof for amount: {} (fee: {})", amount, fee);
+        info!("Creating unified transaction proof for amount: {} (fee: {})", amount, fee);
 
         // Create comprehensive transaction data
         let transaction_data = self.create_transaction_data_for_proof(
@@ -86,7 +86,7 @@ impl UnifiedZkBlockchainManager {
         let coordinator = self.zk_coordinator.as_ref()
             .ok_or_else(|| anyhow!("ZK coordinator not set"))?;
 
-        info!("🔍 Verifying unified transaction proof");
+        info!("Verifying unified transaction proof");
 
         // Verify the composite proof
         let unified_proof_type = zhtp::UnifiedProofType::Transaction(proof.clone());
@@ -376,7 +376,7 @@ impl BlockchainZkExtension for Blockchain {
         transaction_data: &TransactionData,
         coordinator: &zhtp::ZkProofCoordinator,
     ) -> Result<zhtp::CompositeTransactionProof> {
-        info!("🔧 Creating unified transaction proof for blockchain");
+        info!("Creating unified transaction proof for blockchain");
 
         let requirements = zhtp::ProofRequirements {
             subsystem: zhtp::Subsystem::Blockchain,

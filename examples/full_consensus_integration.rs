@@ -23,13 +23,13 @@ async fn main() -> Result<()> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    println!("🚀 Starting Full ZHTP Blockchain Consensus Integration Demo");
+    println!(" Starting Full ZHTP Blockchain Consensus Integration Demo");
 
     // 1. Initialize blockchain and mempool
     let blockchain = Arc::new(RwLock::new(Blockchain::new()?));
     let mempool = Arc::new(RwLock::new(Mempool::default()));
 
-    println!("✅ Blockchain and mempool initialized");
+    println!("Blockchain and mempool initialized");
 
     // 2. Initialize consensus coordinator
     let mut consensus_coordinator = initialize_consensus_integration(
@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
         ConsensusType::Hybrid, // Use hybrid PoS + PoStorage consensus
     ).await?;
 
-    println!("✅ Consensus coordinator initialized with Hybrid consensus");
+    println!("Consensus coordinator initialized with Hybrid consensus");
 
     // 3. Generate validator keypairs
     let validator_keypairs = vec![
@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
         KeyPair::generate().unwrap(),
     ];
 
-    println!("✅ Generated {} validator keypairs", validator_keypairs.len());
+    println!("Generated {} validator keypairs", validator_keypairs.len());
 
     // 4. Register validators
     let validator_names = ["Alice", "Bob", "Charlie", "Dave"];
@@ -67,17 +67,17 @@ async fn main() -> Result<()> {
             5, // 5% commission rate
         ).await?;
 
-        println!("✅ Registered validator {}: {} ZHTP stake, {} GB storage", 
+        println!("Registered validator {}: {} ZHTP stake, {} GB storage", 
                 name, stake / 1_000_000, storage_gb);
     }
 
     // 5. Start consensus coordinator
     consensus_coordinator.start_consensus_coordinator().await?;
-    println!("✅ Consensus coordinator started - block production active");
+    println!("Consensus coordinator started - block production active");
 
     // 6. Get initial consensus status
     let status = consensus_coordinator.get_consensus_status().await?;
-    println!("📊 Initial consensus status:");
+    println!("Initial consensus status:");
     println!("   Height: {}", status.current_height);
     println!("   Round: {}", status.current_round);
     println!("   Step: {:?}", status.current_step);
@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
         blockchain.add_system_transaction(proposal_tx.clone())?;
     }
 
-    println!("✅ DAO proposal created: {}", hex::encode(proposal_tx.hash().as_bytes()));
+    println!("DAO proposal created: {}", hex::encode(proposal_tx.hash().as_bytes()));
 
     // 8. Demonstrate DAO voting
     println!("\n🗳️ Casting DAO votes...");
@@ -124,7 +124,7 @@ async fn main() -> Result<()> {
             blockchain.add_system_transaction(vote_tx.clone())?;
         }
 
-        println!("✅ {} cast vote: {:?}", name, vote_choice);
+        println!("{} cast vote: {:?}", name, vote_choice);
     }
 
     // 9. Simulate blockchain operation for a few rounds
@@ -144,7 +144,7 @@ async fn main() -> Result<()> {
     }
 
     // 10. Final status report
-    println!("\n📊 Final Status Report:");
+    println!("\nFinal Status Report:");
     let final_status = consensus_coordinator.get_consensus_status().await?;
     let blockchain_guard = blockchain.read().await;
     
@@ -171,13 +171,13 @@ async fn main() -> Result<()> {
     println!("\n💸 Creating sample transactions...");
     
     // Create identity registration for a new user (simplified for demo)
-    println!("✅ Identity registration system operational (skipping demo user for brevity)");
+    println!("Identity registration system operational (skipping demo user for brevity)");
 
     // 12. REAL Economic systems implementation - UBI and welfare distribution
     println!("\n🏦 Creating REAL Economic Transactions:");
     
     // Create UBI distribution transactions
-    println!("💰 Creating UBI distribution transactions...");
+    println!("Creating UBI distribution transactions...");
     let ubi_amount = 15_000u64; // 15 ZHTP per citizen per month (15 ZHTP, not micro-ZHTP)
     let ubi_citizens = vec![
         (IdentityId::from_bytes(&validator_keypairs[1].public_key.dilithium_pk), ubi_amount),
@@ -190,7 +190,7 @@ async fn main() -> Result<()> {
         &validator_keypairs[0], // Use first validator as treasury authority
     ).await?;
     
-    println!("✅ Created {} UBI distribution transactions", ubi_transactions.len());
+    println!("Created {} UBI distribution transactions", ubi_transactions.len());
     for (i, tx_hash) in ubi_transactions.iter().enumerate() {
         println!("   UBI TX {}: {}", i + 1, hex::encode(tx_hash.as_bytes()));
     }
@@ -208,22 +208,22 @@ async fn main() -> Result<()> {
         &validator_keypairs[0], // Use first validator as treasury authority
     ).await?;
     
-    println!("✅ Created {} welfare funding transactions", welfare_transactions.len());
+    println!("Created {} welfare funding transactions", welfare_transactions.len());
     for (i, tx_hash) in welfare_transactions.iter().enumerate() {
         println!("   Welfare TX {}: {}", i + 1, hex::encode(tx_hash.as_bytes()));
     }
     
-    println!("✅ Economic integration: REAL transactions created and processed through consensus layer");
+    println!("Economic integration: REAL transactions created and processed through consensus layer");
     
     // Demonstrate treasury statistics access
-    println!("📊 Final treasury status:");
+    println!("Final treasury status:");
     if let Ok(status) = consensus_coordinator.get_consensus_status().await {
         println!("   Available funds: {} ZHTP", status.treasury_balance);
         println!("   DAO proposals: {}", status.dao_proposals);
         println!("   Active validators: {}", status.active_validators);
     }
 
-    println!("\n🎉 Full blockchain consensus integration demo completed successfully!");
+    println!("\n Full blockchain consensus integration demo completed successfully!");
     println!("   - Consensus mechanism: Hybrid PoS + PoStorage");
     println!("   - Validators: {} registered and active", validator_names.len());
     println!("   - DAO: Proposal and voting system operational");
@@ -233,10 +233,10 @@ async fn main() -> Result<()> {
     println!("   - Rewards: Validator reward distribution operational");
 
     // Keep the demo running for a bit longer to show ongoing consensus
-    println!("\n⏱️ Running for 5 more seconds to show ongoing consensus...");
+    println!("\nRunning for 5 more seconds to show ongoing consensus...");
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-    println!("✅ Demo completed. Blockchain with full consensus integration is ready for production!");
+    println!("Demo completed. Blockchain with full consensus integration is ready for production!");
 
     Ok(())
 }

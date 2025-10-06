@@ -168,7 +168,7 @@ impl EconomicTransactionProcessor {
         info!("Successfully processed reward distribution: {} ZHTP total distributed to {} participants", 
               stats["total_rewards_distributed"], stats["participants_rewarded"]);
 
-        info!("✅ Created {} reward transactions totaling {} ZHTP", 
+        info!("Created {} reward transactions totaling {} ZHTP", 
               blockchain_txs.len(), total_rewards);
 
         Ok(blockchain_txs)
@@ -210,7 +210,7 @@ impl EconomicTransactionProcessor {
                 
                 distributed_total += reward_share;
 
-                debug!("💰 Allocated {} ZHTP infrastructure reward (routing: {}, storage: {}, compute: {})", 
+                debug!("Allocated {} ZHTP infrastructure reward (routing: {}, storage: {}, compute: {})", 
                        reward_share, routing_work, storage_work, compute_work);
             }
         }
@@ -224,7 +224,7 @@ impl EconomicTransactionProcessor {
             .unwrap_or_default()
             .as_secs();
 
-        info!("✅ Distributed {} ZHTP infrastructure rewards across {} transactions", 
+        info!("Distributed {} ZHTP infrastructure rewards across {} transactions", 
               distributed_total, blockchain_txs.len());
 
         Ok(blockchain_txs)
@@ -312,7 +312,7 @@ impl EconomicTransactionProcessor {
     /// Process network fees for infrastructure operation
     pub async fn process_network_fees(&mut self, network_fees: u64) -> Result<()> {
         if network_fees > 0 {
-            debug!("🌐 Processing {} ZHTP in network infrastructure fees", network_fees);
+            debug!("Processing {} ZHTP in network infrastructure fees", network_fees);
             // Network fees would be distributed to infrastructure providers
             // This is where you'd incentivize ISP replacement infrastructure
             info!("Network fees processed for infrastructure rewards");
@@ -427,6 +427,7 @@ impl EconomicTransactionProcessor {
             signature,
             memo,
             identity_data,
+            wallet_data: None,
         })
     }
 
@@ -455,6 +456,7 @@ impl EconomicTransactionProcessor {
             signature: temp_signature,
             memo: format!("Economic signature for {}", hex::encode(economy_tx.tx_id)).into_bytes(),
             identity_data: None,
+            wallet_data: None,
         };
 
         // Create signing hash
@@ -496,7 +498,7 @@ impl EconomicTransactionProcessor {
             sender_balance.available_balance -= required_amount;
             
             let sender_addr = hex::encode(&economy_tx.from[..8]);
-            debug!("💰 Sender balance updated - Address: {}..., Deducted: {}, New Balance: {}", 
+            debug!("Sender balance updated - Address: {}..., Deducted: {}, New Balance: {}", 
                    sender_addr, required_amount, sender_balance.available_balance);
         } else {
             // System transaction - log but don't deduct fees
@@ -515,7 +517,7 @@ impl EconomicTransactionProcessor {
         recipient_balance.available_balance += economy_tx.amount;
         
         let recipient_addr = hex::encode(&economy_tx.to[..8]);
-        debug!("💰 Recipient balance updated - Address: {}..., Added: {}, Old: {}, New: {}", 
+        debug!("Recipient balance updated - Address: {}..., Added: {}, Old: {}, New: {}", 
                recipient_addr, economy_tx.amount, old_balance, recipient_balance.available_balance);
 
         Ok(())
@@ -552,7 +554,7 @@ impl EconomicTransactionProcessor {
             return Err(anyhow::anyhow!("Transaction should have at least one output"));
         }
 
-        debug!("✅ Economic transaction conversion validated successfully");
+        debug!("Economic transaction conversion validated successfully");
         Ok(())
     }
 }
@@ -620,7 +622,7 @@ pub async fn create_welfare_funding_transactions(
     }
 
     let total_welfare: u64 = services.iter().map(|(_, _, amount)| *amount).sum();
-    info!("✅ Created {} welfare funding transactions totaling {} ZHTP", 
+    info!("Created {} welfare funding transactions totaling {} ZHTP", 
           blockchain_txs.len(), total_welfare);
 
     Ok(blockchain_txs)
@@ -741,7 +743,7 @@ mod tests {
 
         // Test system transaction (should be fee-free)
         let (sys_net, sys_dao, sys_total) = processor.calculate_transaction_fees(
-            250, 10000, Priority::Normal, true
+            250, 10000, Priority::Normal
         );
 
         assert_eq!(sys_net, 0);

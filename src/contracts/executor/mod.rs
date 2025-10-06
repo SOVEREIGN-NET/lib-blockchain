@@ -1,3 +1,5 @@
+pub mod platform_isolation;
+
 use crate::{
     types::*,
     contracts::tokens::*,
@@ -7,6 +9,7 @@ use crate::{
 };
 use crate::contracts::utils::{generate_storage_key, generate_contract_id};
 use crate::contracts::files::SharedFile;
+use crate::contracts::runtime::{RuntimeFactory, RuntimeConfig, RuntimeContext, ContractRuntime};
 use anyhow::{Result, anyhow};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
@@ -115,16 +118,29 @@ impl ContractStorage for MemoryStorage {
 pub struct ContractExecutor<S: ContractStorage> {
     storage: S,
     token_contracts: HashMap<[u8; 32], TokenContract>,
+    web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
     logs: Vec<ContractLog>,
+    runtime_factory: RuntimeFactory,
+    runtime_config: RuntimeConfig,
 }
 
 impl<S: ContractStorage> ContractExecutor<S> {
     /// Create new contract executor
     pub fn new(storage: S) -> Self {
+        Self::with_runtime_config(storage, RuntimeConfig::default())
+    }
+
+    /// Create new contract executor with runtime configuration
+    pub fn with_runtime_config(storage: S, runtime_config: RuntimeConfig) -> Self {
+        let runtime_factory = RuntimeFactory::new(runtime_config.clone());
+        
         let mut executor = Self {
             storage,
             token_contracts: HashMap::new(),
+            web4_contracts: HashMap::new(),
             logs: Vec::new(),
+            runtime_factory,
+            runtime_config,
         };
         
         // Initialize ZHTP native token
@@ -154,6 +170,7 @@ impl<S: ContractStorage> ContractExecutor<S> {
             ContractType::GroupChat => self.execute_group_call(call, context),
             ContractType::FileSharing => self.execute_file_call(call, context),
             ContractType::Governance => self.execute_governance_call(call, context),
+            ContractType::Web4Website => self.execute_web4_call(call, context),
         };
 
         // Log the execution
@@ -173,6 +190,50 @@ impl<S: ContractStorage> ContractExecutor<S> {
         self.logs.push(log);
 
         result
+    }
+
+    /// Execute WASM contract (new sandboxed method)
+    pub fn execute_wasm_contract(
+        &mut self,
+        contract_code: &[u8],
+        method: &str,
+        params: &[u8],
+        context: &mut ExecutionContext,
+    ) -> Result<ContractResult> {
+        // Check basic gas cost for WASM execution
+        context.consume_gas(crate::GAS_BASE)?;
+        
+        // Create runtime context
+        let runtime_context = RuntimeContext {
+            caller: context.caller.clone(),
+            block_number: context.block_number,
+            timestamp: context.timestamp,
+            gas_limit: context.remaining_gas(),
+            tx_hash: context.tx_hash,
+        };
+
+        // Get WASM runtime
+        let mut runtime = self.runtime_factory.create_runtime("wasm")?;
+        
+        // Execute in sandboxed environment
+        let runtime_result = runtime.execute(
+            contract_code,
+            method,
+            params,
+            &runtime_context,
+            &self.runtime_config,
+        )?;
+
+        // Update gas usage
+        context.consume_gas(runtime_result.gas_used)?;
+
+        // Convert runtime result to contract result
+        if runtime_result.success {
+            Ok(ContractResult::with_return_data(&runtime_result.return_data, context.gas_used)?)
+        } else {
+            Err(anyhow!("WASM execution failed: {}", 
+                runtime_result.error.unwrap_or_else(|| "Unknown error".to_string())))
+        }
     }
 
     /// Execute token contract call
@@ -628,6 +689,74 @@ impl<S: ContractStorage> ContractExecutor<S> {
         }
     }
 
+    fn execute_web4_call(
+        &mut self,
+        call: ContractCall,
+        context: &mut ExecutionContext,
+    ) -> Result<ContractResult> {
+        use crate::contracts::web4::Web4Contract;
+        
+        context.consume_gas(3000)?; // Base gas for Web4 operations
+
+        // Get or create Web4 contract
+        let contract_id = generate_contract_id(&[
+            &bincode::serialize(&call.contract_type).unwrap_or_default(),
+            call.method.as_bytes(),
+            &context.tx_hash,
+        ]);
+
+        // For now, create a simple Web4 contract for demonstration
+        // In production, you'd retrieve from storage or create with proper initialization
+        let mut web4_contract = if let Some(existing) = self.web4_contracts.get_mut(&contract_id) {
+            existing.clone()
+        } else {
+            // Create new Web4 contract with basic initialization
+            use crate::contracts::web4::types::*;
+            use std::collections::HashMap;
+            
+            let metadata = WebsiteMetadata {
+                title: "New Web4 Site".to_string(),
+                description: "Deployed via smart contract".to_string(),
+                author: hex::encode(context.caller.as_bytes()),
+                version: "1.0.0".to_string(),
+                tags: vec![],
+                language: "en".to_string(),
+                created_at: chrono::Utc::now().timestamp() as u64,
+                updated_at: chrono::Utc::now().timestamp() as u64,
+                custom: HashMap::new(),
+            };
+
+            let domain_record = DomainRecord {
+                domain: "new-site.zhtp".to_string(),
+                owner: hex::encode(context.caller.as_bytes()),
+                contract_address: hex::encode(&contract_id),
+                registered_at: chrono::Utc::now().timestamp() as u64,
+                expires_at: chrono::Utc::now().timestamp() as u64 + (365 * 24 * 60 * 60),
+                status: DomainStatus::Active,
+            };
+
+            Web4Contract {
+                contract_id: hex::encode(&contract_id),
+                domain: "new-site.zhtp".to_string(),
+                owner: hex::encode(context.caller.as_bytes()),
+                metadata,
+                routes: HashMap::new(),
+                domain_record,
+                created_at: chrono::Utc::now().timestamp() as u64,
+                updated_at: chrono::Utc::now().timestamp() as u64,
+                config: HashMap::new(),
+            }
+        };
+
+        // Execute the contract method
+        let result = web4_contract.execute(call);
+
+        // Store the updated contract
+        self.web4_contracts.insert(contract_id, web4_contract);
+
+        Ok(result)
+    }
+
     /// Get contract logs
     pub fn get_logs(&self) -> &[ContractLog] {
         &self.logs
@@ -685,9 +814,26 @@ impl<S: ContractStorage> ContractExecutor<S> {
             ContractType::GroupChat => crate::GAS_GROUP,
             ContractType::FileSharing => crate::GAS_BASE,
             ContractType::Governance => crate::GAS_GROUP,
+            ContractType::Web4Website => 3000, // Web4 website contract gas
         };
         
         base_gas + specific_gas
+    }
+
+    /// Get runtime configuration
+    pub fn runtime_config(&self) -> &RuntimeConfig {
+        &self.runtime_config
+    }
+
+    /// Check if WASM runtime is available
+    pub fn is_wasm_available(&self) -> bool {
+        self.runtime_factory.is_wasm_available()
+    }
+
+    /// Update runtime configuration
+    pub fn update_runtime_config(&mut self, config: RuntimeConfig) {
+        self.runtime_config = config.clone();
+        self.runtime_factory = RuntimeFactory::new(config);
     }
 }
 

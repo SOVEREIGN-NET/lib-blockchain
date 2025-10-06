@@ -25,6 +25,9 @@ rand = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 indexmap = "2.0"
 
+# WASM runtime dependencies (optional)
+wasmtime = { version = "37.0.1", optional = true }
+
 # Internal ZHTP dependencies (Foundation Layer Only)
 lib-crypto = { path = "../lib-crypto" }
 lib-proofs = { path = "../lib-proofs" }
@@ -34,9 +37,11 @@ lib-consensus = { path = "../lib-consensus" }
 lib-economy = { path = "../lib-economy" }
 
 [features]
-default = ["contracts"]
+default = ["contracts", "wasm-runtime"]
 testing = []
 contracts = []
+wasm-runtime = ["wasmtime"]
+wasmtime = ["dep:wasmtime"]
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -44,6 +49,7 @@ proptest = "1.0"
 criterion = "0.5"
 tracing-subscriber = "0.3"
 tempfile = "3.0"
+lib-network = { path = "../lib-network" }
 
 [[example]]
 name = "full_consensus_integration"

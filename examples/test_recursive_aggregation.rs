@@ -15,16 +15,16 @@ use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("🚀 Testing Recursive Proof Aggregation Integration");
+    println!(" Testing Recursive Proof Aggregation Integration");
     println!("================================================");
 
     // Initialize blockchain
     let mut blockchain = Blockchain::new()?;
-    println!("✅ Blockchain initialized");
+    println!("Blockchain initialized");
 
     // Enable instant verification with recursive proof aggregation
     blockchain.enable_instant_verification().await?;
-    println!("✅ Recursive proof aggregation enabled");
+    println!("Recursive proof aggregation enabled");
 
     // Create system transactions (empty inputs = system transactions which skip complex validation)
     // This allows us to focus on testing recursive proof aggregation without complex transaction validation
@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
         transactions.push(tx);
     }
     
-    println!("✅ Created {} system transactions (bypassing complex validation to focus on recursive proof aggregation)", transactions.len());
+    println!("Created {} system transactions (bypassing complex validation to focus on recursive proof aggregation)", transactions.len());
 
 
 
@@ -91,10 +91,10 @@ async fn main() -> Result<()> {
     );
 
     let block = Block::new(block_header, transactions);
-    println!("✅ Created test block with {} transactions", block.transactions.len());
+    println!("Created test block with {} transactions", block.transactions.len());
 
     // Add the block to the blockchain - this will trigger recursive proof aggregation
-    println!("🔄 Adding block and triggering recursive proof aggregation...");
+    println!(" Adding block and triggering recursive proof aggregation...");
     println!("   Debug: BlockHeader height in constructor: {}", next_height);
     println!("   Block height: {}", block.height());
     println!("   Block header height: {}", block.header.height);
@@ -116,21 +116,21 @@ async fn main() -> Result<()> {
     }
     
     match blockchain.add_block(block) {
-        Ok(_) => println!("✅ Block added successfully with recursive proof aggregation"),
+        Ok(_) => println!("Block added successfully with recursive proof aggregation"),
         Err(e) => {
-            println!("❌ Block validation failed: {}", e);
-            println!("🔍 This is expected - transaction validation has strict rules for signatures/proofs.");
+            println!("Block validation failed: {}", e);
+            println!("This is expected - transaction validation has strict rules for signatures/proofs.");
             println!("   However, the recursive proof aggregation integration is working correctly!");
-            println!("\n🎉 RECURSIVE PROOF AGGREGATION INTEGRATION SUCCESSFUL!");
+            println!("\n RECURSIVE PROOF AGGREGATION INTEGRATION SUCCESSFUL!");
             println!("================================================");
-            println!("   ✅ RecursiveProofAggregator successfully integrated into blockchain");
-            println!("   ✅ enable_instant_verification() method implemented with real functionality");
-            println!("   ✅ Block structure validation PASSES (height, merkle root, difficulty all correct)");
-            println!("   ✅ Proof aggregator processes transactions through real implementation");  
-            println!("   ✅ O(1) instant state verification demonstrated");
-            println!("   ✅ Real implementation replaces demo placeholder");
-            println!("   ✅ Complete compilation success with no integration errors");
-            println!("\n📋 SUMMARY:");
+            println!("   RecursiveProofAggregator successfully integrated into blockchain");
+            println!("   enable_instant_verification() method implemented with real functionality");
+            println!("   Block structure validation PASSES (height, merkle root, difficulty all correct)");
+            println!("   Proof aggregator processes transactions through real implementation");  
+            println!("   O(1) instant state verification demonstrated");
+            println!("   Real implementation replaces demo placeholder");
+            println!("   Complete compilation success with no integration errors");
+            println!("\nSUMMARY:");
             println!("   The recursive proof aggregation system is successfully integrated");
             println!("   and functional within the blockchain. The block validation failure");
             println!("   is due to transaction-specific validation rules (signatures, etc.)");
@@ -145,7 +145,7 @@ async fn main() -> Result<()> {
     let current_height = blockchain.get_height();
     let latest_block = blockchain.latest_block();
     
-    println!("\n🎯 Blockchain State After Aggregation:");
+    println!("\nBlockchain State After Aggregation:");
     println!("   Current height: {}", current_height);
     if let Some(block) = latest_block {
         println!("   Latest block hash: {}", block.hash());
@@ -153,10 +153,10 @@ async fn main() -> Result<()> {
         println!("   Block height: {}", block.height());
     }
 
-    println!("\n🎉 Recursive Proof Aggregation Test Completed Successfully!");
-    println!("   ✅ Real implementation used (not demo)");
-    println!("   ✅ Transactions processed through aggregator");
-    println!("   ✅ O(1) verification maintains blockchain integrity");
+    println!("\n Recursive Proof Aggregation Test Completed Successfully!");
+    println!("   Real implementation used (not demo)");
+    println!("   Transactions processed through aggregator");
+    println!("   O(1) verification maintains blockchain integrity");
 
     Ok(())
 }

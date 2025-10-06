@@ -15,6 +15,8 @@ pub enum ContractType {
     FileSharing,
     /// Governance contract - on-chain governance and voting
     Governance,
+    /// Web4 website contract - decentralized website hosting
+    Web4Website,
 }
 
 impl ContractType {
@@ -27,6 +29,7 @@ impl ContractType {
             ContractType::GroupChat => crate::contracts::GAS_GROUP,
             ContractType::FileSharing => crate::contracts::GAS_MESSAGING, // Same as messaging due to complexity
             ContractType::Governance => crate::contracts::GAS_GROUP, // Same as group due to voting complexity
+            ContractType::Web4Website => crate::contracts::GAS_MESSAGING, // Similar to file sharing complexity
         }
     }
 
@@ -52,6 +55,7 @@ impl ContractType {
             ContractType::GroupChat => "Group Chat Contract",
             ContractType::FileSharing => "File Sharing Contract",
             ContractType::Governance => "Governance Contract",
+            ContractType::Web4Website => "Web4 Website Contract",
         }
     }
 }
@@ -68,6 +72,7 @@ mod tests {
         assert_eq!(ContractType::GroupChat.gas_cost(), 2500);
         assert_eq!(ContractType::FileSharing.gas_cost(), 3000);
         assert_eq!(ContractType::Governance.gas_cost(), 2500);
+        assert_eq!(ContractType::Web4Website.gas_cost(), 3000);
     }
 
     #[test]

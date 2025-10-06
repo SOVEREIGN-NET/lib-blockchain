@@ -28,6 +28,8 @@ pub enum TransactionType {
     ContentUpload,
     /// Universal Basic Income distribution
     UbiDistribution,
+    /// Wallet registration/creation on blockchain
+    WalletRegistration,
 }
 
 impl TransactionType {
@@ -66,6 +68,7 @@ impl TransactionType {
             TransactionType::SessionTermination => "Session termination for audit/tracking",
             TransactionType::ContentUpload => "Content upload transaction",
             TransactionType::UbiDistribution => "Universal Basic Income distribution",
+            TransactionType::WalletRegistration => "Wallet registration/creation",
         }
     }
 
@@ -82,6 +85,7 @@ impl TransactionType {
             TransactionType::SessionTermination => "session_termination",
             TransactionType::ContentUpload => "content_upload",
             TransactionType::UbiDistribution => "ubi_distribution",
+            TransactionType::WalletRegistration => "wallet_registration",
         }
     }
 
@@ -98,6 +102,7 @@ impl TransactionType {
             "session_termination" => Some(TransactionType::SessionTermination),
             "content_upload" => Some(TransactionType::ContentUpload),
             "ubi_distribution" => Some(TransactionType::UbiDistribution),
+            "wallet_registration" => Some(TransactionType::WalletRegistration),
             _ => None,
         }
     }

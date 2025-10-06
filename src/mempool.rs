@@ -156,23 +156,23 @@ impl Mempool {
         
         match validator.validate_transaction(transaction) {
             Ok(()) => {
-                log::info!("✅ Transaction validation successful");
+                log::info!("Transaction validation successful");
                 Ok(())
             },
             Err(ValidationError::DoubleSpend) => {
-                log::error!("❌ Validation failed: DoubleSpend");
+                log::error!("Validation failed: DoubleSpend");
                 Err(MempoolError::DoubleSpend)
             },
             Err(ValidationError::InvalidSignature) => {
-                log::error!("❌ Validation failed: InvalidSignature");
+                log::error!("Validation failed: InvalidSignature");
                 Err(MempoolError::InvalidSignature)
             },
             Err(ValidationError::InvalidZkProof) => {
-                log::error!("❌ Validation failed: InvalidZkProof - ZK proof verification failed");
+                log::error!("Validation failed: InvalidZkProof - ZK proof verification failed");
                 Err(MempoolError::InvalidProof)
             },
             Err(e) => {
-                log::error!("❌ Validation failed: {:?}", e);
+                log::error!("Validation failed: {:?}", e);
                 Err(MempoolError::InvalidTransaction)
             },
         }

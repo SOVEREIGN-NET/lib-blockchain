@@ -14,7 +14,7 @@ pub async fn initialize_global_blockchain_provider(blockchain: Blockchain) -> Re
     GLOBAL_BLOCKCHAIN.set(shared_blockchain.clone())
         .map_err(|_| anyhow::anyhow!("Global blockchain provider already initialized"))?;
     
-    tracing::info!("🔗 Global blockchain provider initialized successfully");
+    tracing::info!("Global blockchain provider initialized successfully");
     Ok(())
 }
 
@@ -24,7 +24,7 @@ pub async fn set_global_blockchain(blockchain: Blockchain) -> Result<()> {
         Some(shared_blockchain) => {
             let mut guard = shared_blockchain.write().await;
             *guard = blockchain;
-            tracing::info!("🔄 Global blockchain instance updated");
+            tracing::info!(" Global blockchain instance updated");
             Ok(())
         }
         None => {
@@ -50,5 +50,5 @@ pub fn is_global_blockchain_initialized() -> bool {
 pub fn reset_global_blockchain_provider() {
     // Note: OnceCell doesn't support reset, so this is primarily for documentation
     // In practice, you'd need to restart the application to truly reset
-    tracing::warn!("⚠️ Global blockchain provider reset requested - requires application restart");
+    tracing::warn!("Global blockchain provider reset requested - requires application restart");
 }

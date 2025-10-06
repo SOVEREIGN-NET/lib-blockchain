@@ -27,6 +27,9 @@ pub struct Transaction {
     /// Identity-specific data (only for identity transactions)
     /// This data is processed by lib-identity package
     pub identity_data: Option<IdentityTransactionData>,
+    /// Wallet-specific data (only for wallet transactions)
+    /// This data is processed by lib-identity package
+    pub wallet_data: Option<WalletTransactionData>,
 }
 
 /// Transaction input referencing a previous output
@@ -76,6 +79,33 @@ pub struct IdentityTransactionData {
     pub dao_fee: u64,
 }
 
+/// Wallet registration transaction data (processed by lib-identity package)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletTransactionData {
+    /// Unique wallet identifier (32-byte hash)
+    pub wallet_id: Hash,
+    /// Wallet type (Primary, UBI, Savings, etc.)
+    pub wallet_type: String,
+    /// Human-readable wallet name
+    pub wallet_name: String,
+    /// Optional wallet alias
+    pub alias: Option<String>,
+    /// Public key for wallet operations
+    pub public_key: Vec<u8>,
+    /// Owner identity ID (if associated with DID)
+    pub owner_identity_id: Option<Hash>,
+    /// Seed phrase commitment hash (for recovery verification)
+    pub seed_commitment: Hash,
+    /// Creation timestamp
+    pub created_at: u64,
+    /// Registration fee paid
+    pub registration_fee: u64,
+    /// Wallet capabilities flags
+    pub capabilities: u32,
+    /// Initial balance (if any)
+    pub initial_balance: u64,
+}
+
 impl Transaction {
     /// Create a new standard transfer transaction
     pub fn new(
@@ -94,6 +124,7 @@ impl Transaction {
             signature,
             memo,
             identity_data: None,
+            wallet_data: None,
         }
     }
 
@@ -113,6 +144,7 @@ impl Transaction {
             signature,
             memo,
             identity_data: Some(identity_data),
+            wallet_data: None,
         }
     }
 
@@ -134,6 +166,7 @@ impl Transaction {
             signature,
             memo,
             identity_data: Some(identity_data),
+            wallet_data: None,
         }
     }
 
@@ -169,6 +202,27 @@ impl Transaction {
             signature,
             memo,
             identity_data: Some(revocation_data),
+            wallet_data: None,
+        }
+    }
+
+    /// Create a new wallet registration transaction
+    pub fn new_wallet_registration(
+        wallet_data: WalletTransactionData,
+        outputs: Vec<TransactionOutput>, // For fee payments
+        signature: Signature,
+        memo: Vec<u8>,
+    ) -> Self {
+        Transaction {
+            version: 1,
+            transaction_type: TransactionType::WalletRegistration,
+            inputs: Vec::new(), // Wallet registration doesn't need inputs
+            outputs,
+            fee: wallet_data.registration_fee,
+            signature,
+            memo,
+            identity_data: None,
+            wallet_data: Some(wallet_data),
         }
     }
 

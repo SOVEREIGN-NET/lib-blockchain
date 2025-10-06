@@ -343,7 +343,7 @@ impl IntegrationTestScenarios {
         assert_eq!(framework.get_token_balance("bob", &token_id), 5000);
         assert_eq!(framework.get_token_balance("charlie", &token_id), 5000);
 
-        println!("✅ Token lifecycle test passed");
+        println!("Token lifecycle test passed");
         Ok(())
     }
 
@@ -366,7 +366,7 @@ impl IntegrationTestScenarios {
         // Verify message was created
         assert_ne!(message_id, [0u8; 32]);
 
-        println!("✅ Messaging system test passed");
+        println!("Messaging system test passed");
         Ok(())
     }
 
@@ -384,7 +384,7 @@ impl IntegrationTestScenarios {
         // Verify contact was created
         assert_ne!(contact_id, [0u8; 32]);
 
-        println!("✅ Contact management test passed");
+        println!("Contact management test passed");
         Ok(())
     }
 
@@ -419,7 +419,7 @@ impl IntegrationTestScenarios {
 
         assert_ne!(message_id, [0u8; 32]);
 
-        println!("✅ Group functionality test passed");
+        println!("Group functionality test passed");
         Ok(())
     }
 
@@ -444,13 +444,13 @@ impl IntegrationTestScenarios {
         // Verify file was shared
         assert_ne!(file_id, [0u8; 32]);
 
-        println!("✅ File sharing test passed");
+        println!("File sharing test passed");
         Ok(())
     }
 
     /// Run all integration tests
     pub fn run_all_tests() -> Result<()> {
-        println!("🚀 Starting integration tests...\n");
+        println!(" Starting integration tests...\n");
 
         Self::test_token_lifecycle()?;
         Self::test_messaging_system()?;
@@ -458,7 +458,7 @@ impl IntegrationTestScenarios {
         Self::test_group_functionality()?;
         Self::test_file_sharing()?;
 
-        println!("\n🎉 All integration tests passed!");
+        println!("\n All integration tests passed!");
         Ok(())
     }
 }
@@ -490,7 +490,7 @@ impl PerformanceBenchmarks {
         let duration = start_time.elapsed();
         let tps = (num_transfers * 2) as f64 / duration.as_secs_f64();
 
-        println!("📊 Token Transfer Benchmark:");
+        println!("Token Transfer Benchmark:");
         println!("  Transfers: {}", num_transfers * 2);
         println!("  Duration: {:?}", duration);
         println!("  TPS: {:.2}", tps);
@@ -517,7 +517,7 @@ impl PerformanceBenchmarks {
         let duration = start_time.elapsed();
         let mps = num_messages as f64 / duration.as_secs_f64();
 
-        println!("📊 Message Sending Benchmark:");
+        println!("Message Sending Benchmark:");
         println!("  Messages: {}", num_messages);
         println!("  Duration: {:?}", duration);
         println!("  MPS: {:.2}", mps);

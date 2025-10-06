@@ -2,7 +2,7 @@
 //!
 //! Provides functionality for creating new transactions in the ZHTP blockchain.
 
-use crate::transaction::core::{Transaction, TransactionInput, TransactionOutput, IdentityTransactionData};
+use crate::transaction::core::{Transaction, TransactionInput, TransactionOutput, IdentityTransactionData, WalletTransactionData};
 use crate::types::transaction_type::TransactionType;
 use crate::integration::crypto_integration::{Signature, PublicKey, PrivateKey, SignatureAlgorithm};
 use tracing::debug;
@@ -43,6 +43,7 @@ pub struct TransactionBuilder {
     fee: u64,
     memo: Vec<u8>,
     identity_data: Option<IdentityTransactionData>,
+    wallet_data: Option<WalletTransactionData>,
 }
 
 impl Default for TransactionBuilder {
@@ -62,6 +63,7 @@ impl TransactionBuilder {
             fee: 0,
             memo: Vec::new(),
             identity_data: None,
+            wallet_data: None,
         }
     }
 
@@ -120,6 +122,13 @@ impl TransactionBuilder {
         self
     }
 
+    /// Set wallet data (for wallet transactions)
+    pub fn wallet_data(mut self, wallet_data: WalletTransactionData) -> Self {
+        self.wallet_data = Some(wallet_data);
+        self.transaction_type = TransactionType::WalletRegistration;
+        self
+    }
+
     /// Build the transaction (requires signing)
     pub fn build(self, private_key: &PrivateKey) -> Result<Transaction, TransactionCreateError> {
         // Validate inputs and outputs
@@ -149,6 +158,7 @@ impl TransactionBuilder {
             }, // Will be set below
             memo: self.memo,
             identity_data: self.identity_data,
+            wallet_data: self.wallet_data,
         };
 
         // Sign the transaction
@@ -283,6 +293,19 @@ pub fn create_identity_transaction(
         .build(private_key)
 }
 
+/// Create a wallet registration transaction
+pub fn create_wallet_transaction(
+    wallet_data: WalletTransactionData,
+    fee: u64,
+    private_key: &PrivateKey,
+) -> Result<Transaction, TransactionCreateError> {
+    TransactionBuilder::new()
+        .transaction_type(TransactionType::WalletRegistration)
+        .wallet_data(wallet_data)
+        .fee(fee)
+        .build(private_key)
+}
+
 /// Create a contract deployment transaction
 pub fn create_contract_transaction(
     inputs: Vec<TransactionInput>,
@@ -383,6 +406,10 @@ pub mod utils {
             TransactionType::ContentUpload | TransactionType::UbiDistribution => {
                 // Audit transactions - no specific validation needed here
                 // Memo validation will be handled during transaction validation
+            }
+            TransactionType::WalletRegistration => {
+                // Wallet registration transactions should have wallet data
+                // Validation will be handled during transaction validation
             }
         }
 

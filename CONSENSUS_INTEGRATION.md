@@ -36,7 +36,7 @@ This document describes the complete integration between `lib-blockchain` and `l
 
 ## Features Implemented
 
-### ✅ Complete Features
+### Complete Features
 
 1. **Multi-Consensus Support**
    - Proof of Stake (PoS)
@@ -78,7 +78,7 @@ This document describes the complete integration between `lib-blockchain` and `l
    - Treasury management
    - Fee calculation with economic rules
 
-### 🔧 Integration Points
+### Integration Points
 
 #### Blockchain → Consensus
 - Block validation with consensus rules

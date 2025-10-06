@@ -1004,7 +1004,7 @@ impl BlockchainStorageManager {
             network_health: self.calculate_network_health().await?,
         };
         
-        info!("📊 DHT Statistics: {} nodes, {:.1}% storage utilization, {:.1}% network health", 
+        info!("DHT Statistics: {} nodes, {:.1}% storage utilization, {:.1}% network health", 
               dht_stats.total_nodes, 
               dht_stats.storage_utilization * 100.0,
               dht_stats.network_health * 100.0);
@@ -1023,7 +1023,7 @@ impl BlockchainStorageManager {
             total_rewards: 0, // Would track reward distributions
         };
         
-        info!("💰 Economic Statistics: {} contracts, {} bytes storage, {} tokens locked",
+        info!("Economic Statistics: {} contracts, {} bytes storage, {} tokens locked",
               economic_stats.total_contracts,
               economic_stats.total_storage,
               economic_stats.total_value_locked);

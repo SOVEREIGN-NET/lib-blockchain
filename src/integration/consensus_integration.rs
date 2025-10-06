@@ -147,13 +147,13 @@ impl BlockchainConsensusCoordinator {
         // Add to pending transactions
         blockchain.add_pending_transaction(registration_tx)?;
 
-        info!("✅ Registered as validator: {:?} with {} ZHTP stake", identity, stake_amount);
+        info!("Registered as validator: {:?} with {} ZHTP stake", identity, stake_amount);
         Ok(())
     }
 
     /// Start the consensus coordinator event loop
     pub async fn start_consensus_coordinator(&mut self) -> Result<()> {
-        info!("🚀 Starting blockchain consensus coordinator");
+        info!(" Starting blockchain consensus coordinator");
         
         self.is_producing_blocks = true;
 
@@ -183,7 +183,7 @@ impl BlockchainConsensusCoordinator {
             coordinator_clone.reward_distribution_loop().await;
         });
 
-        info!("✅ Blockchain consensus coordinator started successfully");
+        info!("Blockchain consensus coordinator started successfully");
         Ok(())
     }
 
@@ -205,13 +205,13 @@ impl BlockchainConsensusCoordinator {
 
     /// Main consensus event processing loop
     async fn consensus_event_loop(&self) {
-        info!("🔄 Starting consensus event processing loop");
+        info!(" Starting consensus event processing loop");
         
         loop {
             if let Ok(mut receiver) = self.event_receiver.try_write() {
                 if let Some(event) = receiver.recv().await {
                     if let Err(e) = self.handle_consensus_event(event).await {
-                        error!("❌ Error handling consensus event: {}", e);
+                        error!("Error handling consensus event: {}", e);
                     }
                 }
             }
@@ -223,7 +223,7 @@ impl BlockchainConsensusCoordinator {
 
     /// Handle individual consensus events
     async fn handle_consensus_event(&self, event: ConsensusEvent) -> Result<()> {
-        debug!("🔄 Processing consensus event: {:?}", event);
+        debug!(" Processing consensus event: {:?}", event);
 
         match event {
             ConsensusEvent::StartRound { height, trigger } => {
@@ -242,10 +242,10 @@ impl BlockchainConsensusCoordinator {
                 self.handle_round_completed(height).await?;
             }
             ConsensusEvent::ValidatorRegistered { identity } => {
-                info!("✅ Validator registered: {:?}", identity);
+                info!("Validator registered: {:?}", identity);
             }
             ConsensusEvent::DaoError { error } => {
-                warn!("⚠️ DAO error: {}", error);
+                warn!("DAO error: {}", error);
             }
             ConsensusEvent::ByzantineFault { error } => {
                 warn!("🚨 Byzantine fault detected: {}", error);
@@ -263,7 +263,7 @@ impl BlockchainConsensusCoordinator {
 
     /// Handle start round event
     async fn handle_start_round(&self, height: u64, trigger: String) -> Result<()> {
-        info!("🚀 Starting consensus round {} (trigger: {})", height, trigger);
+        info!(" Starting consensus round {} (trigger: {})", height, trigger);
 
         // Update current round cache
         {
@@ -335,7 +335,7 @@ impl BlockchainConsensusCoordinator {
 
     /// Handle proposal received event
     async fn handle_proposal_received(&self, proposal: ConsensusProposal) -> Result<()> {
-        info!("📋 Received consensus proposal: {:?}", proposal.id);
+        info!("Received consensus proposal: {:?}", proposal.id);
 
         // Store proposal
         self.pending_proposals.write().await.push_back(proposal.clone());
@@ -376,7 +376,7 @@ impl BlockchainConsensusCoordinator {
 
     /// Handle round completed event
     async fn handle_round_completed(&self, height: u64) -> Result<()> {
-        info!("✅ Consensus round completed at height {}", height);
+        info!("Consensus round completed at height {}", height);
 
         // Find the winning proposal
         if let Some(winning_proposal) = self.determine_winning_proposal(height).await? {
@@ -434,10 +434,10 @@ impl BlockchainConsensusCoordinator {
         
         // Validate proposal timestamp
         if let Err(e) = validate_consensus_timestamp(timestamp) {
-            warn!("⚠️ Invalid proposal timestamp: {}", e);
+            warn!("Invalid proposal timestamp: {}", e);
             return Err(anyhow!("Proposal timestamp validation failed: {}", e));
         }
-        debug!("✅ Proposal timestamp validated: {}", timestamp);
+        debug!("Proposal timestamp validated: {}", timestamp);
         
         // Calculate merkle root from actual transactions
         let merkle_root = crate::transaction::hashing::calculate_transaction_merkle_root(&transactions);
@@ -467,7 +467,7 @@ impl BlockchainConsensusCoordinator {
 
         while self.is_producing_blocks {
             if let Err(e) = self.attempt_block_production().await {
-                error!("❌ Block production error: {}", e);
+                error!("Block production error: {}", e);
             }
 
             // Wait for next block time (configurable, default 10 seconds)
@@ -563,7 +563,7 @@ impl BlockchainConsensusCoordinator {
             },
         };
         
-        info!("📋 Created consensus proposal {} at height {} with {} transactions", 
+        info!("Created consensus proposal {} at height {} with {} transactions", 
               hex::encode(proposal_id.as_bytes()), height, selected_transactions.len());
         
         Ok(proposal)
@@ -575,7 +575,7 @@ impl BlockchainConsensusCoordinator {
 
         loop {
             if let Err(e) = self.process_dao_governance().await {
-                error!("❌ DAO governance processing error: {}", e);
+                error!("DAO governance processing error: {}", e);
             }
 
             // Process DAO governance every 30 seconds
@@ -606,11 +606,11 @@ impl BlockchainConsensusCoordinator {
 
     /// Reward distribution processing loop
     async fn reward_distribution_loop(&self) {
-        info!("💰 Starting reward distribution processing loop");
+        info!("Starting reward distribution processing loop");
 
         loop {
             if let Err(e) = self.process_reward_distribution().await {
-                error!("❌ Reward distribution error: {}", e);
+                error!("Reward distribution error: {}", e);
             }
 
             // Process rewards every minute
@@ -655,7 +655,7 @@ impl BlockchainConsensusCoordinator {
         citizens: &[(IdentityId, u64)],
         system_keypair: &KeyPair,
     ) -> Result<Vec<BlockchainHash>> {
-        info!("💰 Creating UBI distributions for {} citizens", citizens.len());
+        info!("Creating UBI distributions for {} citizens", citizens.len());
         
         // Simple treasury balance validation to avoid consensus engine deadlock
         // Use conservative estimate based on initial treasury setup
@@ -667,7 +667,7 @@ impl BlockchainConsensusCoordinator {
                 total_ubi, estimated_treasury_available));
         }
         
-        info!("✅ Treasury validation passed: {} ZHTP needed, estimated {} ZHTP available", 
+        info!("Treasury validation passed: {} ZHTP needed, estimated {} ZHTP available", 
             total_ubi, estimated_treasury_available);
         
         // Create UBI transactions for each citizen
@@ -700,7 +700,7 @@ impl BlockchainConsensusCoordinator {
             
             // For demo purposes, we'll simulate successful transaction creation
             // In production, this would integrate with the actual economic transaction system
-            info!("✅ Created UBI payment transaction of {} ZHTP for citizen {} (Demo: Transaction hash: {})", 
+            info!("Created UBI payment transaction of {} ZHTP for citizen {} (Demo: Transaction hash: {})", 
                 amount, hex::encode(&citizen_id.as_bytes()[..8]), hex::encode(tx_hash.as_bytes()));
             
             // Since we can't access blockchain due to consensus locks, we'll record the transaction
@@ -708,7 +708,7 @@ impl BlockchainConsensusCoordinator {
             ubi_tx_hashes.push(tx_hash);
         }
         
-        info!("✅ Created {} UBI distribution transactions totaling {} ZHTP", 
+        info!("Created {} UBI distribution transactions totaling {} ZHTP", 
             ubi_tx_hashes.len(), total_ubi);
         
         Ok(ubi_tx_hashes)
@@ -730,7 +730,7 @@ impl BlockchainConsensusCoordinator {
                 total_welfare, estimated_treasury_available));
         }
         
-        info!("✅ Treasury validation passed: {} ZHTP needed, estimated {} ZHTP available", 
+        info!("Treasury validation passed: {} ZHTP needed, estimated {} ZHTP available", 
             total_welfare, estimated_treasury_available);
         
         // Create welfare funding transactions
@@ -763,7 +763,7 @@ impl BlockchainConsensusCoordinator {
             
             // For demo purposes, we'll simulate successful transaction creation
             // In production, this would integrate with the actual economic transaction system
-            info!("✅ Created welfare funding transaction of {} ZHTP for service {} (Demo: Transaction hash: {})", 
+            info!("Created welfare funding transaction of {} ZHTP for service {} (Demo: Transaction hash: {})", 
                 amount, service_name, hex::encode(tx_hash.as_bytes()));
             
             // Since we can't access blockchain due to consensus locks, we'll record the transaction
@@ -771,7 +771,7 @@ impl BlockchainConsensusCoordinator {
             welfare_tx_hashes.push(tx_hash);
         }
         
-        info!("✅ Created {} welfare funding transactions totaling {} ZHTP", 
+        info!("Created {} welfare funding transactions totaling {} ZHTP", 
             welfare_tx_hashes.len(), total_welfare);
         
         Ok(welfare_tx_hashes)
@@ -1086,7 +1086,7 @@ impl BlockchainConsensusCoordinator {
                 7, // 7 days voting period
             ).await?;
 
-            info!("📋 Created DAO proposal from transaction: {:?}", proposal_id);
+            info!("Created DAO proposal from transaction: {:?}", proposal_id);
         }
 
         Ok(())
@@ -1186,6 +1186,7 @@ impl BlockchainConsensusCoordinator {
                     signature,
                     transaction_type: TransactionType::Transfer,
                     identity_data: None,
+                    wallet_data: None,
                 };
 
                 reward_transactions.push(reward_tx);
@@ -1261,7 +1262,7 @@ impl BlockchainConsensusCoordinator {
 
     /// Stop the consensus coordinator
     pub async fn stop(&mut self) {
-        info!("🛑 Stopping blockchain consensus coordinator");
+        info!("Stopping blockchain consensus coordinator");
         self.is_producing_blocks = false;
     }
 
@@ -1356,7 +1357,7 @@ pub async fn initialize_consensus_integration(
         consensus_config,
     ).await?;
 
-    info!("✅ Consensus integration initialized successfully");
+    info!("Consensus integration initialized successfully");
     Ok(coordinator)
 }
 

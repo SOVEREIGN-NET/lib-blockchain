@@ -19,9 +19,13 @@ pub mod integration;
 #[cfg(feature = "contracts")]
 pub mod messaging;
 #[cfg(feature = "contracts")]
+pub mod runtime;
+#[cfg(feature = "contracts")]
 pub mod tokens;
 #[cfg(feature = "contracts")]
 pub mod utils;
+#[cfg(feature = "contracts")]
+pub mod web4;
 
 // Re-export core types and functionality when contracts feature is enabled
 #[cfg(feature = "contracts")]
@@ -30,6 +34,12 @@ pub use base::SmartContract;
 pub use executor::{ContractExecutor, ExecutionContext, MemoryStorage, ContractStorage};
 #[cfg(feature = "contracts")]
 pub use integration::{BlockchainIntegration, ContractTransactionBuilder, ContractEvent, ContractEventListener, ContractEventPublisher};
+#[cfg(feature = "contracts")]
+pub use runtime::{ContractRuntime, RuntimeConfig, RuntimeContext, RuntimeResult, RuntimeFactory, NativeRuntime};
+#[cfg(all(feature = "contracts", feature = "wasm-runtime"))]
+pub use runtime::wasm_engine::WasmEngine;
+#[cfg(feature = "contracts")]
+pub use runtime::sandbox::{SandboxConfig, SecurityLevel, ContractSandbox};
 #[cfg(feature = "contracts")]
 pub use crate::types::{
     ContractCall, ContractLog, ContractPermissions, ContractResult, ContractType, MessageType, CallPermissions, EventType,
@@ -48,6 +58,8 @@ pub use messaging::{WhisperMessage, MessageContract, MessageThread, GroupThread}
 pub use tokens::{TokenContract, functions};
 #[cfg(feature = "contracts")]
 pub use utils::*;
+#[cfg(feature = "contracts")]
+pub use web4::{Web4Contract, WebsiteContract, WebsiteMetadata, ContentRoute, DomainRecord, WebsiteDeploymentData};
 
 // Re-export testing framework when available
 #[cfg(all(feature = "contracts", feature = "testing"))]
