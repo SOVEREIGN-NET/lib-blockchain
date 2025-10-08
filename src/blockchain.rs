@@ -1518,6 +1518,70 @@ impl Blockchain {
         }
         Ok(())
     }
+
+    /// Export the entire blockchain state for network transfer
+    /// Includes: blocks, UTXO set, identity registry, wallet registry
+    pub fn export_chain(&self) -> Result<Vec<u8>> {
+        #[derive(Serialize)]
+        struct BlockchainExport {
+            blocks: Vec<Block>,
+            utxo_set: HashMap<Hash, TransactionOutput>,
+            identity_registry: HashMap<String, IdentityTransactionData>,
+            wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+        }
+
+        let export = BlockchainExport {
+            blocks: self.blocks.clone(),
+            utxo_set: self.utxo_set.clone(),
+            identity_registry: self.identity_registry.clone(),
+            wallet_registry: self.wallet_registry.clone(),
+        };
+
+        bincode::serialize(&export)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize blockchain: {}", e))
+    }
+
+    /// Import and validate a blockchain from another node
+    /// Verifies all blocks before accepting the chain
+    pub fn import_chain(&mut self, data: Vec<u8>) -> Result<()> {
+        #[derive(Deserialize)]
+        struct BlockchainExport {
+            blocks: Vec<Block>,
+            utxo_set: HashMap<Hash, TransactionOutput>,
+            identity_registry: HashMap<String, IdentityTransactionData>,
+            wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+        }
+
+        let import: BlockchainExport = bincode::deserialize(&data)
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize blockchain: {}", e))?;
+
+        // Verify all blocks in sequence
+        for (i, block) in import.blocks.iter().enumerate() {
+            if i == 0 {
+                // Genesis block - just verify it's valid
+                if !self.verify_block(block, None)? {
+                    return Err(anyhow::anyhow!("Invalid genesis block in imported chain"));
+                }
+            } else {
+                let prev_block = &import.blocks[i - 1];
+                if block.header.previous_block_hash != prev_block.header.block_hash {
+                    return Err(anyhow::anyhow!("Block chain integrity broken at block {}", i));
+                }
+                if !self.verify_block(block, Some(prev_block))? {
+                    return Err(anyhow::anyhow!("Invalid block {} in imported chain", i));
+                }
+            }
+        }
+
+        // All blocks verified - replace our state
+        info!("✅ Imported {} blocks from peer", import.blocks.len());
+        self.blocks = import.blocks;
+        self.utxo_set = import.utxo_set;
+        self.identity_registry = import.identity_registry;
+        self.wallet_registry = import.wallet_registry;
+
+        Ok(())
+    }
 }
 
 impl Default for Blockchain {
