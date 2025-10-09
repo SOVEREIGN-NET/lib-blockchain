@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
-use tracing::{info, warn, error};
+use tracing::{info, warn, error, debug};
 use crate::types::{Hash, Difficulty};
 use crate::transaction::{Transaction, TransactionInput, TransactionOutput, IdentityTransactionData};
 use crate::types::transaction_type::TransactionType;
@@ -51,6 +51,12 @@ pub struct Blockchain {
     pub wallet_blocks: HashMap<String, u64>,
     /// Economics transaction storage (handled by lib-economy)
     pub economics_transactions: Vec<EconomicsTransaction>,
+    /// Smart contract registry - Token contracts (contract_id -> TokenContract)
+    pub token_contracts: HashMap<[u8; 32], crate::contracts::TokenContract>,
+    /// Smart contract registry - Web4 Website contracts (contract_id -> Web4Contract)
+    pub web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
+    /// Contract deployment block heights (contract_id -> block_height)
+    pub contract_blocks: HashMap<[u8; 32], u64>,
     /// Economic transaction processor for lib-economy integration
     #[serde(skip)]
     pub economic_processor: Option<EconomicTransactionProcessor>,
@@ -99,6 +105,9 @@ impl Blockchain {
             wallet_registry: HashMap::new(),
             wallet_blocks: HashMap::new(),
             economics_transactions: Vec::new(),
+            token_contracts: HashMap::new(),
+            web4_contracts: HashMap::new(),
+            contract_blocks: HashMap::new(),
             economic_processor: Some(EconomicTransactionProcessor::new()),
             consensus_coordinator: None,
             storage_manager: None,
@@ -343,6 +352,7 @@ impl Blockchain {
         // Process identity transactions
         self.process_identity_transactions(&block)?;
         self.process_wallet_transactions(&block)?;
+        self.process_contract_transactions(&block)?;
 
         // Update persistence counter
         self.blocks_since_last_persist += 1;
@@ -876,6 +886,33 @@ impl Blockchain {
                         wallet_id_str,
                         block.height()
                     );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Process contract deployment transactions from a block
+    pub fn process_contract_transactions(&mut self, block: &Block) -> Result<()> {
+        for transaction in &block.transactions {
+            if transaction.transaction_type == TransactionType::ContractDeployment {
+                // Contract data is serialized in the first output's commitment
+                if let Some(output) = transaction.outputs.first() {
+                    // Try to deserialize as Web4Contract first (JSON format)
+                    if let Ok(web4_contract) = serde_json::from_slice::<crate::contracts::web4::Web4Contract>(output.commitment.as_bytes()) {
+                        // Generate contract ID from the note field or domain
+                        let contract_id = lib_crypto::hash_blake3(web4_contract.domain.as_bytes());
+                        self.register_web4_contract(contract_id, web4_contract, block.height());
+                        info!("🌐 Processed Web4Contract deployment in block {}", block.height());
+                    } 
+                    // Try to deserialize as TokenContract (bincode format)
+                    else if let Ok(token_contract) = bincode::deserialize::<crate::contracts::TokenContract>(output.commitment.as_bytes()) {
+                        let contract_id = token_contract.token_id;
+                        self.register_token_contract(contract_id, token_contract, block.height());
+                        info!("💼 Processed TokenContract deployment in block {}", block.height());
+                    } else {
+                        debug!("⚠️ Could not deserialize contract in transaction {}", transaction.hash());
+                    }
                 }
             }
         }
@@ -1520,7 +1557,7 @@ impl Blockchain {
     }
 
     /// Export the entire blockchain state for network transfer
-    /// Includes: blocks, UTXO set, identity registry, wallet registry
+    /// Includes: blocks, UTXO set, identity registry, wallet registry, and smart contracts
     pub fn export_chain(&self) -> Result<Vec<u8>> {
         #[derive(Serialize)]
         struct BlockchainExport {
@@ -1528,6 +1565,9 @@ impl Blockchain {
             utxo_set: HashMap<Hash, TransactionOutput>,
             identity_registry: HashMap<String, IdentityTransactionData>,
             wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+            token_contracts: HashMap<[u8; 32], crate::contracts::TokenContract>,
+            web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
+            contract_blocks: HashMap<[u8; 32], u64>,
         }
 
         let export = BlockchainExport {
@@ -1535,7 +1575,13 @@ impl Blockchain {
             utxo_set: self.utxo_set.clone(),
             identity_registry: self.identity_registry.clone(),
             wallet_registry: self.wallet_registry.clone(),
+            token_contracts: self.token_contracts.clone(),
+            web4_contracts: self.web4_contracts.clone(),
+            contract_blocks: self.contract_blocks.clone(),
         };
+
+        info!("📦 Exporting blockchain: {} blocks, {} token contracts, {} web4 contracts", 
+            self.blocks.len(), self.token_contracts.len(), self.web4_contracts.len());
 
         bincode::serialize(&export)
             .map_err(|e| anyhow::anyhow!("Failed to serialize blockchain: {}", e))
@@ -1550,6 +1596,9 @@ impl Blockchain {
             utxo_set: HashMap<Hash, TransactionOutput>,
             identity_registry: HashMap<String, IdentityTransactionData>,
             wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+            token_contracts: HashMap<[u8; 32], crate::contracts::TokenContract>,
+            web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
+            contract_blocks: HashMap<[u8; 32], u64>,
         }
 
         let import: BlockchainExport = bincode::deserialize(&data)
@@ -1573,14 +1622,80 @@ impl Blockchain {
             }
         }
 
-        // All blocks verified - replace our state
-        info!("✅ Imported {} blocks from peer", import.blocks.len());
+        // All blocks verified - replace our state INCLUDING smart contracts
+        info!("✅ Imported blockchain from peer:");
+        info!("   - {} blocks", import.blocks.len());
+        info!("   - {} token contracts", import.token_contracts.len());
+        info!("   - {} web4 contracts", import.web4_contracts.len());
+        
         self.blocks = import.blocks;
         self.utxo_set = import.utxo_set;
         self.identity_registry = import.identity_registry;
         self.wallet_registry = import.wallet_registry;
+        self.token_contracts = import.token_contracts;
+        self.web4_contracts = import.web4_contracts;
+        self.contract_blocks = import.contract_blocks;
 
         Ok(())
+    }
+
+    // ============================================================================
+    // SMART CONTRACT REGISTRY METHODS
+    // ============================================================================
+    
+    /// Register a token contract in the blockchain
+    pub fn register_token_contract(&mut self, contract_id: [u8; 32], contract: crate::contracts::TokenContract, block_height: u64) {
+        self.token_contracts.insert(contract_id, contract);
+        self.contract_blocks.insert(contract_id, block_height);
+        info!("📝 Registered token contract {} at block {}", hex::encode(contract_id), block_height);
+    }
+    
+    /// Get a token contract from the blockchain
+    pub fn get_token_contract(&self, contract_id: &[u8; 32]) -> Option<&crate::contracts::TokenContract> {
+        self.token_contracts.get(contract_id)
+    }
+    
+    /// Get a mutable reference to a token contract
+    pub fn get_token_contract_mut(&mut self, contract_id: &[u8; 32]) -> Option<&mut crate::contracts::TokenContract> {
+        self.token_contracts.get_mut(contract_id)
+    }
+    
+    /// Register a Web4 contract in the blockchain
+    pub fn register_web4_contract(&mut self, contract_id: [u8; 32], contract: crate::contracts::web4::Web4Contract, block_height: u64) {
+        self.web4_contracts.insert(contract_id, contract);
+        self.contract_blocks.insert(contract_id, block_height);
+        info!("📝 Registered Web4 contract {} at block {}", hex::encode(contract_id), block_height);
+    }
+    
+    /// Get a Web4 contract from the blockchain
+    pub fn get_web4_contract(&self, contract_id: &[u8; 32]) -> Option<&crate::contracts::web4::Web4Contract> {
+        self.web4_contracts.get(contract_id)
+    }
+    
+    /// Get a mutable reference to a Web4 contract
+    pub fn get_web4_contract_mut(&mut self, contract_id: &[u8; 32]) -> Option<&mut crate::contracts::web4::Web4Contract> {
+        self.web4_contracts.get_mut(contract_id)
+    }
+    
+    /// Get all token contracts
+    pub fn get_all_token_contracts(&self) -> &HashMap<[u8; 32], crate::contracts::TokenContract> {
+        &self.token_contracts
+    }
+    
+    /// Get all Web4 contracts
+    pub fn get_all_web4_contracts(&self) -> &HashMap<[u8; 32], crate::contracts::web4::Web4Contract> {
+        &self.web4_contracts
+    }
+    
+    /// Check if a contract exists
+    pub fn contract_exists(&self, contract_id: &[u8; 32]) -> bool {
+        self.token_contracts.contains_key(contract_id) || 
+        self.web4_contracts.contains_key(contract_id)
+    }
+    
+    /// Get the block height where a contract was deployed
+    pub fn get_contract_block_height(&self, contract_id: &[u8; 32]) -> Option<u64> {
+        self.contract_blocks.get(contract_id).copied()
     }
 }
 
@@ -1593,3 +1708,4 @@ impl Default for Blockchain {
         blockchain
     }
 }
+
