@@ -3,7 +3,7 @@
 //! Complete integration test demonstrating:
 //! 1. Domain registration  
 //! 2. Website deployment with directory structure
-//! 3. REAL content storage to DHT network
+//! 3. content storage to DHT network
 //! 4. DNS resolution via smart contracts
 //! 5. Content retrieval from DHT
 
@@ -25,11 +25,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-/// Read hello_world files and compute REAL DHT content hashes
+/// Read hello_world files and compute DHT content hashes
 async fn upload_hello_world_to_dht() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let mut hashes = HashMap::new();
     
-    println!("📂 Reading hello_world files from disk...");
+    println!(" Reading hello_world files from disk...");
     
     // Read index.html
     let index_path = Path::new("../hello_world/index.html");
@@ -41,7 +41,7 @@ async fn upload_hello_world_to_dht() -> Result<HashMap<String, String>, Box<dyn 
     let css_content = fs::read(css_path)?;
     println!("    Read style.css ({} bytes)\n", css_content.len());
     
-    // Upload index.html to DHT - compute REAL hash
+    // Upload index.html to DHT - compute hash
     println!(" Computing content hashes for DHT storage...");
     let index_hash = hash_blake3(&index_content);
     let index_hash_str = format!("dht:{}", hex::encode(&index_hash));
@@ -50,7 +50,7 @@ async fn upload_hello_world_to_dht() -> Result<HashMap<String, String>, Box<dyn 
     hashes.insert("index_size".to_string(), index_content.len().to_string());
     println!("    index.html hash: {}\n", index_hash_str);
     
-    // Upload style.css to DHT - compute REAL hash
+    // Upload style.css to DHT - compute hash
     let css_hash = hash_blake3(&css_content);
     let css_hash_str = format!("dht:{}", hex::encode(&css_hash));
     
@@ -61,7 +61,7 @@ async fn upload_hello_world_to_dht() -> Result<HashMap<String, String>, Box<dyn 
     Ok(hashes)
 }
 
-/// Create directory tree structure for hello_world website with REAL hashes
+/// Create directory tree structure for hello_world website with hashes
 fn create_hello_world_directory(content_hashes: &HashMap<String, String>) -> DirectoryNode {
     // Root directory
     let mut root = DirectoryNode {
@@ -126,7 +126,7 @@ fn create_hello_world_directory(content_hashes: &HashMap<String, String>) -> Dir
     root
 }
 
-/// Create complete website manifest for hello_world with REAL DHT hashes
+/// Create complete website manifest for hello_world with DHT hashes
 fn create_hello_world_manifest(content_hashes: HashMap<String, String>) -> WebsiteManifest {
     let directory = create_hello_world_directory(&content_hashes);
     
@@ -160,8 +160,8 @@ async fn test_hello_world_deployment_full_flow() {
     println!("\n Starting Hello World Web4 Deployment Test\n");
     println!("{}", "=".repeat(60));
     
-    // 0. Initialize DHT client for REAL storage
-    println!("⚙️  Step 0: Initializing DHT client for content storage...");
+    // 0. Initialize DHT client for storage
+    println!("  Step 0: Initializing DHT client for content storage...");
     let dht_identity = ZhtpIdentity::new(
         lib_identity::IdentityType::User,
         vec![1, 2, 3],  // Dummy public key for testing
@@ -177,11 +177,11 @@ async fn test_hello_world_deployment_full_flow() {
     println!("    DHT client initialized");
     println!("   Node ID: {}\n", hex::encode(&dht_identity.id.to_string().as_bytes()[..8]));
     
-    // 0.5 Upload hello_world files to DHT and get REAL content hashes
+    // 0.5 Upload hello_world files to DHT and get content hashes
     let content_hashes = upload_hello_world_to_dht().await
         .expect("Failed to upload content to DHT");
     
-    println!("📊 Content Upload Summary:");
+    println!(" Content Upload Summary:");
     for (file, hash) in &content_hashes {
         if !file.ends_with("_size") {
             println!("   {} → {}", file, hash);
@@ -209,7 +209,7 @@ async fn test_hello_world_deployment_full_flow() {
     // 2. Create website metadata
     let metadata = WebsiteMetadata {
         title: "Hello World - Web4 Site".to_string(),
-        description: "A simple Hello World website demonstrating Web4 capabilities on ZHTP with REAL DHT storage".to_string(),
+        description: "A simple Hello World website demonstrating Web4 capabilities on ZHTP with DHT storage".to_string(),
         author: hex::encode(owner_keypair.public_key.as_bytes()),
         version: "1.0.0".to_string(),
         tags: vec!["web4".to_string(), "hello-world".to_string(), "zhtp".to_string(), "dht".to_string()],
@@ -223,7 +223,7 @@ async fn test_hello_world_deployment_full_flow() {
     println!("   Title: {}", metadata.title);
     println!("   Version: {}\n", metadata.version);
     
-    // 3. Create deployment package with manifest using REAL DHT hashes
+    // 3. Create deployment package with manifest using DHT hashes
     let manifest = create_hello_world_manifest(content_hashes.clone());
     let deployment_package = DeploymentPackage {
         domain: "hello-world.zhtp".to_string(),
@@ -233,7 +233,7 @@ async fn test_hello_world_deployment_full_flow() {
         config: HashMap::new(),
     };
     
-    println!(" Step 3: Deployment package created with REAL DHT hashes");
+    println!(" Step 3: Deployment package created with DHT hashes");
     println!("   Domain: {}", deployment_package.domain);
     println!("   Files: {}", deployment_package.manifest.file_count);
     println!("   Total Size: {} bytes", deployment_package.manifest.total_size);
@@ -351,8 +351,8 @@ async fn test_hello_world_deployment_full_flow() {
     
     // Summary
     println!("{}", "=".repeat(60));
-    println!("🎉 HELLO WORLD WEB4 DEPLOYMENT COMPLETE!\n");
-    println!("📊 Deployment Summary:");
+    println!(" HELLO WORLD WEB4 DEPLOYMENT COMPLETE!\n");
+    println!(" Deployment Summary:");
     println!("   Contract ID: {}", contract_id);
     println!("   Domain: hello-world.zhtp");
     println!("   Owner: {}", hex::encode(owner_keypair.public_key.as_bytes()));
@@ -433,7 +433,7 @@ async fn test_dns_resolution_flow() {
     println!("   Status: {:?}", domain_record.status);
     println!("   Registered: {}", domain_record.registered_at);
     println!("   Expires: {}", domain_record.expires_at);
-    println!("\n🎉 DNS Resolution Test PASSED!");
+    println!("\n DNS Resolution Test PASSED!");
 }
 
 #[tokio::test]
@@ -492,7 +492,7 @@ async fn test_path_resolution_with_fallbacks() {
     assert!(route4.is_none());
     println!(" Non-existent path correctly returns None");
     
-    println!("\n🎉 Path Resolution Test PASSED!");
+    println!("\n Path Resolution Test PASSED!");
 }
 
 #[tokio::test]
@@ -533,13 +533,13 @@ async fn test_directory_listing() {
     
     // List root directory
     let files = contract.list_directory("/");
-    println!("📂 Root directory contains {} files:", files.len());
+    println!(" Root directory contains {} files:", files.len());
     for file in &files {
         println!("   - {}", file);
     }
     
     assert!(!files.is_empty());
-    println!("\n🎉 Directory Listing Test PASSED!");
+    println!("\n Directory Listing Test PASSED!");
 }
 
 #[tokio::test]
@@ -559,7 +559,7 @@ async fn test_content_update_flow() {
     );
     
     // Initial content
-    println!("📝 Step 1: Deploying initial content");
+    println!(" Step 1: Deploying initial content");
     
     let update_call = ContractCall {
         contract_type: ContractType::Web4Website,
@@ -582,11 +582,11 @@ async fn test_content_update_flow() {
     println!("   New Hash: QmNewContentHash456");
     println!("   Gas Used: {}\n", result.gas_used);
     
-    println!("🎉 Content Update Test PASSED!");
+    println!(" Content Update Test PASSED!");
 }
 
 
-/// Create directory tree structure for hello_world website with REAL hashes
+/// Create directory tree structure for hello_world website with hashes
 fn create_hello_world_directory(content_hashes: &HashMap<String, String>) -> DirectoryNode {
     
     // Root directory
@@ -644,7 +644,7 @@ fn create_hello_world_directory(content_hashes: &HashMap<String, String>) -> Dir
     root
 }
 
-/// Create complete website manifest for hello_world with REAL DHT hashes
+/// Create complete website manifest for hello_world with DHT hashes
 fn create_hello_world_manifest(content_hashes: HashMap<String, String>) -> WebsiteManifest {
     let directory = create_hello_world_directory(&content_hashes);
     
@@ -671,19 +671,19 @@ async fn test_hello_world_deployment_full_flow() {
     println!("\n Starting Hello World Web4 Deployment Test\n");
     println!("=" .repeat(60));
     
-    // 0. Initialize DHT client for REAL storage
-    println!("⚙️  Step 0: Initializing DHT client for content storage...");
+    // 0. Initialize DHT client for storage
+    println!("  Step 0: Initializing DHT client for content storage...");
     let dht_identity = ZhtpIdentity::generate().expect("Failed to generate DHT identity");
     let mut dht_client = DHTClient::new(dht_identity.clone()).await
         .expect("Failed to initialize DHT client");
     println!("    DHT client initialized");
     println!("   Node ID: {}\n", hex::encode(&dht_identity.id.to_string().as_bytes()[..8]));
     
-    // 0.5 Upload hello_world files to DHT and get REAL content hashes
+    // 0.5 Upload hello_world files to DHT and get content hashes
     let content_hashes = upload_hello_world_to_dht(&mut dht_client).await
         .expect("Failed to upload content to DHT");
     
-    println!("📊 Content Upload Summary:");
+    println!(" Content Upload Summary:");
     for (file, hash) in &content_hashes {
         println!("   {} → {}", file, hash);
     }
@@ -709,7 +709,7 @@ async fn test_hello_world_deployment_full_flow() {
     // 2. Create website metadata
     let metadata = WebsiteMetadata {
         title: "Hello World - Web4 Site".to_string(),
-        description: "A simple Hello World website demonstrating Web4 capabilities on ZHTP with REAL DHT storage".to_string(),
+        description: "A simple Hello World website demonstrating Web4 capabilities on ZHTP with DHT storage".to_string(),
         author: hex::encode(owner_keypair.public_key.as_bytes()),
         version: "1.0.0".to_string(),
         tags: vec!["web4".to_string(), "hello-world".to_string(), "zhtp".to_string(), "dht".to_string()],
@@ -723,7 +723,7 @@ async fn test_hello_world_deployment_full_flow() {
     println!("   Title: {}", metadata.title);
     println!("   Version: {}\n", metadata.version);
     
-    // 3. Create deployment package with manifest using REAL DHT hashes
+    // 3. Create deployment package with manifest using DHT hashes
     let manifest = create_hello_world_manifest(content_hashes.clone());
     let deployment_package = DeploymentPackage {
         domain: "hello-world.zhtp".to_string(),
@@ -733,7 +733,7 @@ async fn test_hello_world_deployment_full_flow() {
         config: HashMap::new(),
     };
     
-    println!(" Step 3: Deployment package created with REAL DHT hashes");
+    println!(" Step 3: Deployment package created with DHT hashes");
     println!("   Domain: {}", deployment_package.domain);
     println!("   Files: {}", deployment_package.manifest.file_count);
     println!("   Total Size: {} bytes", deployment_package.manifest.total_size);
@@ -851,8 +851,8 @@ async fn test_hello_world_deployment_full_flow() {
     
     // Summary
     println!("=" .repeat(60));
-    println!("🎉 HELLO WORLD WEB4 DEPLOYMENT COMPLETE!\n");
-    println!("📊 Deployment Summary:");
+    println!(" HELLO WORLD WEB4 DEPLOYMENT COMPLETE!\n");
+    println!(" Deployment Summary:");
     println!("   Contract ID: {}", contract_id);
     println!("   Domain: hello-world.zhtp");
     println!("   Owner: {}", hex::encode(owner_keypair.public_key.as_bytes()));
@@ -933,7 +933,7 @@ fn test_dns_resolution_flow() {
     println!("   Status: {:?}", domain_record.status);
     println!("   Registered: {}", domain_record.registered_at);
     println!("   Expires: {}", domain_record.expires_at);
-    println!("\n🎉 DNS Resolution Test PASSED!");
+    println!("\n DNS Resolution Test PASSED!");
 }
 
 #[tokio::test]
@@ -990,7 +990,7 @@ async fn test_path_resolution_with_fallbacks() {
     assert!(route4.is_none());
     println!(" Non-existent path correctly returns None");
     
-    println!("\n🎉 Path Resolution Test PASSED!");
+    println!("\n Path Resolution Test PASSED!");
 }
 
 #[tokio::test]
@@ -1029,13 +1029,13 @@ async fn test_directory_listing() {
     
     // List root directory
     let files = contract.list_directory("/");
-    println!("📂 Root directory contains {} files:", files.len());
+    println!(" Root directory contains {} files:", files.len());
     for file in &files {
         println!("   - {}", file);
     }
     
     assert!(!files.is_empty());
-    println!("\n🎉 Directory Listing Test PASSED!");
+    println!("\n Directory Listing Test PASSED!");
 }
 
 #[test]
@@ -1055,7 +1055,7 @@ fn test_content_update_flow() {
     );
     
     // Initial content
-    println!("📝 Step 1: Deploying initial content");
+    println!(" Step 1: Deploying initial content");
     
     let update_call = ContractCall {
         contract_type: ContractType::Web4Website,
@@ -1078,5 +1078,5 @@ fn test_content_update_flow() {
     println!("   New Hash: QmNewContentHash456");
     println!("   Gas Used: {}\n", result.gas_used);
     
-    println!("🎉 Content Update Test PASSED!");
+    println!(" Content Update Test PASSED!");
 }

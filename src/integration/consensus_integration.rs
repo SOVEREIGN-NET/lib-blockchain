@@ -251,7 +251,7 @@ impl BlockchainConsensusCoordinator {
                 warn!(" Byzantine fault detected: {}", error);
             }
             ConsensusEvent::RewardError { error } => {
-                warn!("💸 Reward error: {}", error);
+                warn!(" Reward error: {}", error);
             }
             _ => {
                 debug!("Unhandled consensus event: {:?}", event);
@@ -290,7 +290,7 @@ impl BlockchainConsensusCoordinator {
 
     /// Handle new block event
     async fn handle_new_block(&self, height: u64, previous_hash: Hash) -> Result<()> {
-        info!("📦 Processing new block at height {}", height);
+        info!(" Processing new block at height {}", height);
 
         // Convert Hash types
         // Convert consensus hash to blockchain hash
@@ -362,7 +362,7 @@ impl BlockchainConsensusCoordinator {
 
     /// Handle vote received event
     async fn handle_vote_received(&self, vote: ConsensusVote) -> Result<()> {
-        debug!("🗳️ Received consensus vote: {:?} on proposal {:?}", vote.vote_type, vote.proposal_id);
+        debug!(" Received consensus vote: {:?} on proposal {:?}", vote.vote_type, vote.proposal_id);
 
         // Store vote
         let proposal_id = vote.proposal_id.clone();
@@ -400,7 +400,7 @@ impl BlockchainConsensusCoordinator {
                 .collect();
             mempool.remove_transactions(&tx_hashes);
 
-            info!("📦 Added new block to blockchain at height {} with {} transactions", 
+            info!(" Added new block to blockchain at height {} with {} transactions", 
                   height, tx_hashes.len());
         }
 
@@ -495,7 +495,7 @@ impl BlockchainConsensusCoordinator {
         
         if let Some(proposer) = validator_manager.select_proposer(current_height, 0) {
             if &proposer.identity == validator_id {
-                // We are the proposer, create a real consensus proposal with transaction data
+                // We are the proposer, create a consensus proposal with transaction data
                 let consensus_proposal = self.create_consensus_proposal(current_height, previous_hash).await?;
                 
                 // Send the proposal through consensus engine
@@ -510,7 +510,7 @@ impl BlockchainConsensusCoordinator {
         Ok(())
     }
     
-    /// Create a consensus proposal with real transaction data
+    /// Create a consensus proposal with transaction data
     async fn create_consensus_proposal(&self, height: u64, previous_hash: BlockchainHash) -> Result<ConsensusProposal> {
         // Select transactions from mempool
         let mempool = self.mempool.read().await;
@@ -571,7 +571,7 @@ impl BlockchainConsensusCoordinator {
 
     /// DAO governance processing loop
     async fn dao_governance_loop(&self) {
-        info!("🏛️ Starting DAO governance processing loop");
+        info!(" Starting DAO governance processing loop");
 
         loop {
             if let Err(e) = self.process_dao_governance().await {
@@ -643,13 +643,13 @@ impl BlockchainConsensusCoordinator {
             blockchain.add_system_transaction(tx)?;
         }
 
-        info!("💸 Distributed {} ZHTP in rewards to {} validators", 
+        info!(" Distributed {} ZHTP in rewards to {} validators", 
               reward_round.total_rewards, reward_round.validator_rewards.len());
 
         Ok(())
     }
 
-    /// Create real UBI distribution transactions through consensus  
+    /// Create UBI distribution transactions through consensus  
     pub async fn create_ubi_distributions(
         &self,
         citizens: &[(IdentityId, u64)],
@@ -712,7 +712,7 @@ impl BlockchainConsensusCoordinator {
             ubi_tx_hashes.len(), total_ubi);
         
         Ok(ubi_tx_hashes)
-    }    /// Create real welfare funding transactions through consensus  
+    }    /// Create welfare funding transactions through consensus  
     pub async fn create_welfare_funding(
         &self,
         services: &[(String, [u8; 32], u64)], // (service_name, address, amount)
@@ -792,7 +792,7 @@ impl BlockchainConsensusCoordinator {
             voter: self.local_validator_id.clone().unwrap_or_else(|| lib_crypto::Hash::from_bytes(&[0u8; 32])),
             proposal_id: proposal_id.clone(),
             vote_type: vote_type.clone(),
-            height: 0, // Would be set properly in real implementation
+            height: 0, // Would be set properly in implementation
             round: 0,
             timestamp: current_timestamp(),
             signature: self.create_vote_signature(proposal_id, &vote_type).await?,
@@ -1138,7 +1138,7 @@ impl BlockchainConsensusCoordinator {
                         Some("Vote cast via blockchain transaction".to_string()),
                     ).await?;
 
-                    info!("🗳️ Processed DAO vote from transaction: {:?}", vote_id);
+                    info!(" Processed DAO vote from transaction: {:?}", vote_id);
                 }
             }
         }

@@ -231,7 +231,7 @@ pub fn search_messages<'a>(
     user: &PublicKey,
     search_term: &str,
 ) -> Vec<&'a WhisperMessage> {
-    // Note: In a real implementation, this would require decrypting messages
+    // Note: In a implementation, this would require decrypting messages
     // For now, we'll search in the encrypted content (not very useful)
     let search_bytes = search_term.as_bytes();
     

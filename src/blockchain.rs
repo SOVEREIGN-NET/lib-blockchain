@@ -171,7 +171,7 @@ impl Blockchain {
     /// Persist blockchain state to storage
     pub async fn persist_to_storage(&mut self) -> Result<StorageOperationResult> {
         if let Some(ref storage_manager_arc) = self.storage_manager {
-            info!("💾 Persisting blockchain state to storage (height: {})", self.height);
+            info!(" Persisting blockchain state to storage (height: {})", self.height);
             
             let mut storage_manager = storage_manager_arc.write().await;
             let result = storage_manager.store_blockchain_state(self).await?;
@@ -188,7 +188,7 @@ impl Blockchain {
     /// Backup entire blockchain to distributed storage
     pub async fn backup_to_storage(&mut self) -> Result<Vec<StorageOperationResult>> {
         if let Some(ref storage_manager_arc) = self.storage_manager {
-            info!("📦 Starting blockchain backup to distributed storage");
+            info!(" Starting blockchain backup to distributed storage");
             
             let mut storage_manager = storage_manager_arc.write().await;
             let results = storage_manager.backup_blockchain(self).await?;
@@ -302,7 +302,7 @@ impl Blockchain {
     /// Perform storage maintenance
     pub async fn perform_storage_maintenance(&mut self) -> Result<()> {
         if let Some(ref storage_manager_arc) = self.storage_manager {
-            info!("🧹 Performing blockchain storage maintenance");
+            info!(" Performing blockchain storage maintenance");
             
             let mut storage_manager = storage_manager_arc.write().await;
             storage_manager.perform_maintenance().await?;
@@ -367,13 +367,13 @@ impl Blockchain {
 
         // Persist the block to storage if storage manager is available
         if let Some(_) = self.persist_block(&block).await? {
-            info!("📦 Block {} persisted to storage", block.height());
+            info!(" Block {} persisted to storage", block.height());
         }
 
         // Persist UTXO set every 10 blocks or if auto-persist is enabled
         if self.auto_persist_enabled && (self.height % 10 == 0 || self.blocks_since_last_persist >= 10) {
             if let Some(_) = self.persist_utxo_set().await? {
-                info!("💎 UTXO set persisted to storage at height {}", self.height);
+                info!(" UTXO set persisted to storage at height {}", self.height);
             }
         }
 
@@ -909,7 +909,7 @@ impl Blockchain {
                     else if let Ok(token_contract) = bincode::deserialize::<crate::contracts::TokenContract>(output.commitment.as_bytes()) {
                         let contract_id = token_contract.token_id;
                         self.register_token_contract(contract_id, token_contract, block.height());
-                        info!("💼 Processed TokenContract deployment in block {}", block.height());
+                        info!(" Processed TokenContract deployment in block {}", block.height());
                     } else {
                         debug!(" Could not deserialize contract in transaction {}", transaction.hash());
                     }
@@ -1436,7 +1436,7 @@ impl Blockchain {
     pub async fn create_full_backup(&self) -> Result<bool> {
         if let Some(storage_manager_arc) = &self.storage_manager {
             let mut storage_manager = storage_manager_arc.write().await;
-            info!("💾 Creating full blockchain backup...");
+            info!(" Creating full blockchain backup...");
 
             // Backup using the storage manager's backup functionality
             let backup_result = storage_manager.backup_blockchain(self).await?;
@@ -1547,7 +1547,7 @@ impl Blockchain {
     /// Cleanup old storage data (for maintenance)
     pub async fn cleanup_storage(&self, retain_blocks: u32) -> Result<()> {
         if let Some(_storage_manager) = &self.storage_manager {
-            info!("🧹 Starting storage cleanup, retaining last {} blocks", retain_blocks);
+            info!(" Starting storage cleanup, retaining last {} blocks", retain_blocks);
             
             // This would implement cleanup logic in the storage manager
             // For now, just log the operation
@@ -1580,7 +1580,7 @@ impl Blockchain {
             contract_blocks: self.contract_blocks.clone(),
         };
 
-        info!("📦 Exporting blockchain: {} blocks, {} token contracts, {} web4 contracts", 
+        info!(" Exporting blockchain: {} blocks, {} token contracts, {} web4 contracts", 
             self.blocks.len(), self.token_contracts.len(), self.web4_contracts.len());
 
         bincode::serialize(&export)
@@ -1647,7 +1647,7 @@ impl Blockchain {
     pub fn register_token_contract(&mut self, contract_id: [u8; 32], contract: crate::contracts::TokenContract, block_height: u64) {
         self.token_contracts.insert(contract_id, contract);
         self.contract_blocks.insert(contract_id, block_height);
-        info!("📝 Registered token contract {} at block {}", hex::encode(contract_id), block_height);
+        info!(" Registered token contract {} at block {}", hex::encode(contract_id), block_height);
     }
     
     /// Get a token contract from the blockchain
@@ -1664,7 +1664,7 @@ impl Blockchain {
     pub fn register_web4_contract(&mut self, contract_id: [u8; 32], contract: crate::contracts::web4::Web4Contract, block_height: u64) {
         self.web4_contracts.insert(contract_id, contract);
         self.contract_blocks.insert(contract_id, block_height);
-        info!("📝 Registered Web4 contract {} at block {}", hex::encode(contract_id), block_height);
+        info!(" Registered Web4 contract {} at block {}", hex::encode(contract_id), block_height);
     }
     
     /// Get a Web4 contract from the blockchain

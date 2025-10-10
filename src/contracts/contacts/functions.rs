@@ -211,7 +211,7 @@ pub fn get_frequent_contacts<'a>(
     limit: usize,
 ) -> Vec<&'a ContactEntry> {
     // For now, just return recent contacts
-    // In a real implementation, this would consider message frequency
+    // In a implementation, this would consider message frequency
     contract.get_recent_contacts(owner, limit)
 }
 

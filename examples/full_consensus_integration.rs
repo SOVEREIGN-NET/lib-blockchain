@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
     println!("   Producing blocks: {}", status.is_producing_blocks);
 
     // 7. Demonstrate DAO proposal creation
-    println!("\n🏛️ Creating DAO proposal...");
+    println!("\n Creating DAO proposal...");
     let proposal_tx = create_dao_proposal_transaction(
         &validator_keypairs[0],
         "Increase UBI Distribution".to_string(),
@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
     println!("DAO proposal created: {}", hex::encode(proposal_tx.hash().as_bytes()));
 
     // 8. Demonstrate DAO voting
-    println!("\n🗳️ Casting DAO votes...");
+    println!("\n Casting DAO votes...");
     let proposal_id = lib_crypto::Hash::from_bytes(proposal_tx.hash().as_bytes());
 
     for (i, name) in validator_names.iter().enumerate() {
@@ -168,13 +168,13 @@ async fn main() -> Result<()> {
     }
 
     // 11. Demonstrate transaction creation and processing
-    println!("\n💸 Creating sample transactions...");
+    println!("\n Creating sample transactions...");
     
     // Create identity registration for a new user (simplified for demo)
     println!("Identity registration system operational (skipping demo user for brevity)");
 
-    // 12. REAL Economic systems implementation - UBI and welfare distribution
-    println!("\n🏦 Creating REAL Economic Transactions:");
+    // 12. Economic systems implementation - UBI and welfare distribution
+    println!("\n🏦 Creating Economic Transactions:");
     
     // Create UBI distribution transactions
     println!("Creating UBI distribution transactions...");
@@ -213,7 +213,7 @@ async fn main() -> Result<()> {
         println!("   Welfare TX {}: {}", i + 1, hex::encode(tx_hash.as_bytes()));
     }
     
-    println!("Economic integration: REAL transactions created and processed through consensus layer");
+    println!("Economic integration: transactions created and processed through consensus layer");
     
     // Demonstrate treasury statistics access
     println!("Final treasury status:");
@@ -227,7 +227,7 @@ async fn main() -> Result<()> {
     println!("   - Consensus mechanism: Hybrid PoS + PoStorage");
     println!("   - Validators: {} registered and active", validator_names.len());
     println!("   - DAO: Proposal and voting system operational");
-    println!("   - Economics: REAL UBI ({} tx) and welfare ({} tx) transactions processed", 
+    println!("   - Economics: UBI ({} tx) and welfare ({} tx) transactions processed", 
              ubi_transactions.len(), welfare_transactions.len());
     println!("   - Identity: Registration and management functional");
     println!("   - Rewards: Validator reward distribution operational");

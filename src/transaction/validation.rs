@@ -64,7 +64,7 @@ pub type ValidationResult = Result<(), ValidationError>;
 
 /// Transaction validator with state context
 pub struct TransactionValidator {
-    // Note: In real implementation, this would contain references to
+    // Note: In implementation, this would contain references to
     // blockchain state, UTXO set, nullifier set, etc.
 }
 
@@ -367,7 +367,7 @@ impl TransactionValidator {
         Ok(())
     }
 
-    /// Validate zero-knowledge proofs for all inputs using real ZK verification
+    /// Validate zero-knowledge proofs for all inputs using ZK verification
     fn validate_zk_proofs(&self, transaction: &Transaction) -> ValidationResult {
         use lib_proofs::ZkTransactionProof;
         
@@ -420,7 +420,7 @@ impl TransactionValidator {
     fn validate_nullifier_proof(&self, input: &TransactionInput) -> ValidationResult {
         // Verify that the nullifier proof is cryptographically sound
         if let Some(plonky2_proof) = &input.zk_proof.nullifier_proof.plonky2_proof {
-            // Use real Plonky2 verification if available
+            // Use Plonky2 verification if available
             if let Ok(zk_system) = lib_proofs::ZkProofSystem::new() {
                 match zk_system.verify_range(plonky2_proof) {
                     Ok(is_valid) => {
@@ -456,7 +456,7 @@ impl TransactionValidator {
             log::info!("Found Plonky2 amount proof for range validation");
             log::info!("Amount proof system: '{}'", plonky2_proof.proof_system);
             
-            // Use real Plonky2 verification if available
+            // Use Plonky2 verification if available
             if let Ok(zk_system) = lib_proofs::ZkProofSystem::new() {
                 println!(" DEBUG: ZkProofSystem initialized for range validation");
                 log::info!("ZkProofSystem initialized for range validation");

@@ -843,7 +843,7 @@ impl BlockchainStorageManager {
 
     /// Clean up expired data and optimize storage
     pub async fn perform_maintenance(&mut self) -> Result<()> {
-        info!("🧹 Performing storage maintenance");
+        info!(" Performing storage maintenance");
 
         // Perform unified storage system maintenance
         self.storage_system.write().await.perform_maintenance().await?;
@@ -911,7 +911,7 @@ impl BlockchainStorageManager {
     /// Retrieve the latest blockchain state from storage
     pub async fn retrieve_latest_blockchain_state(&self) -> Result<Option<BlockchainState>> {
         // Try to retrieve the latest blockchain state using a well-known content hash
-        // In a real implementation, this would be tracked separately
+        // In a implementation, this would be tracked separately
         info!("Attempting to retrieve latest blockchain state");
         
         // For now, return None since we don't have a reliable way to retrieve without a content hash
@@ -933,7 +933,7 @@ impl BlockchainStorageManager {
     pub async fn retrieve_all_identities(&self) -> Result<HashMap<String, IdentityTransactionData>> {
         let identities = HashMap::new();
         
-        // In a real implementation, this would iterate through stored identity keys
+        // In a implementation, this would iterate through stored identity keys
         // For now, return empty map as this requires storage metadata support
         info!("Error: retrieve_all_identities requires storage indexing implementation");
         
@@ -993,7 +993,7 @@ impl BlockchainStorageManager {
     pub async fn get_dht_statistics(&self) -> Result<DhtStats> {
         let _storage_system = self.storage_system.read().await;
         
-        // In a real implementation, these would be pulled from the storage system
+        // In a implementation, these would be pulled from the storage system
         let dht_stats = DhtStats {
             total_nodes: 0, // Would query DHT for actual node count
             total_connections: 0, // Active peer connections

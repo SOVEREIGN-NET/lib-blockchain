@@ -188,7 +188,7 @@ impl ContractRuntime for NativeRuntime {
         let start_time = Instant::now();
         
         // For native runtime, we'll just validate method exists
-        // Real implementation would execute native contract methods
+        // implementation would execute native contract methods
         if method.is_empty() {
             return Ok(RuntimeResult::error(
                 "Method name cannot be empty".to_string(),

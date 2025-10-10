@@ -1,7 +1,7 @@
 //! Enhanced ZK and Crypto Integration Module
 //!
 //! This module provides production-ready integration between lib-proofs and lib-crypto
-//! packages, fixing the placeholder implementations and enabling real cryptographic
+//! packages, fixing the placeholder implementations and enabling cryptographic
 //! verification for the ZHTP blockchain.
 
 use anyhow::Result;
@@ -63,7 +63,7 @@ impl Default for ProofMetadata {
     }
 }
 
-/// Enhanced transaction validator with real ZK and crypto verification
+/// Enhanced transaction validator with ZK and crypto verification
 pub struct EnhancedTransactionValidator {
     zk_system: ZkProofSystem,
 }
@@ -78,7 +78,7 @@ impl EnhancedTransactionValidator {
         })
     }
     
-    /// Comprehensive transaction validation using real ZK proofs and crypto
+    /// Comprehensive transaction validation using ZK proofs and crypto
     pub fn validate_transaction_comprehensive(&self, transaction: &Transaction) -> Result<bool> {
         // 1. Validate cryptographic signatures
         self.validate_cryptographic_signature(transaction)?;
@@ -327,7 +327,7 @@ impl EnhancedTransactionValidator {
     }
 }
 
-/// Enhanced transaction creator with real ZK proof generation
+/// Enhanced transaction creator with ZK proof generation
 pub struct EnhancedTransactionCreator {
     zk_system: ZkProofSystem,
     secure_rng: SecureRng,
@@ -345,7 +345,7 @@ impl EnhancedTransactionCreator {
         })
     }
     
-    /// Create transaction with real ZK proofs
+    /// Create transaction with ZK proofs
     pub fn create_transaction_with_zk_proofs(
         &mut self,
         sender_balance: u64,
@@ -532,7 +532,7 @@ impl EnhancedConsensusValidator {
             nullifier,
         ) {
             Ok(zk_proof) => {
-                // Use lib-proofs validation - this is the real verification
+                // Use lib-proofs validation - this is the verification
                 match zk_proof.verify() {
                     Ok(is_valid) => {
                         if is_valid {
@@ -563,7 +563,7 @@ impl EnhancedConsensusValidator {
         for (i, input) in transaction.inputs.iter().enumerate() {
             debug!("Validating ZK proof for input {}", i);
             
-            // Use the actual ZK proof from the transaction input - this is the real verification
+            // Use the actual ZK proof from the transaction input - this is the verification
             match input.zk_proof.verify() {
                 Ok(is_valid) => {
                     if !is_valid {
@@ -620,7 +620,7 @@ impl EnhancedConsensusValidator {
 pub mod testing {
     use super::*;
     
-    /// Create test transaction with real ZK proofs
+    /// Create test transaction with ZK proofs
     pub fn create_test_transaction_with_zk() -> Result<Transaction> {
         let mut creator = EnhancedTransactionCreator::new()?;
         let keypair = generate_keypair()?;

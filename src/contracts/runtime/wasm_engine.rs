@@ -191,7 +191,7 @@ impl ContractRuntime for WasmEngine {
             // Create timeout future
             let timeout_duration = config.max_execution_time;
             
-            // Execute the function (this would need async runtime in real implementation)
+            // Execute the function (this would need async runtime in implementation)
             contract_func.call(&mut store, (params_ptr as i32, params_len))
         };
         

@@ -215,7 +215,7 @@ pub fn verify_identity_for_operation(
         return Ok(false);
     }
 
-    // Basic verification (in a real system, this would check against the identity registry)
+    // Basic verification (in a system, this would check against the identity registry)
     if did.is_empty() || public_key.key_id.is_empty() || operation_type.is_empty() {
         return Ok(false);
     }

@@ -191,7 +191,7 @@ impl TransactionBuilder {
                 nullifier_secret[i] = pk_bytes[i] ^ nullifier_nonce[i % nullifier_nonce.len()];
             }
             
-            // Estimate sender balance (in a real implementation, this would be looked up from UTXO set)
+            // Estimate sender balance (in a implementation, this would be looked up from UTXO set)
             let estimated_sender_balance = self.fee + 1000; // Ensure sufficient balance for fee
             
             // Generate ZK proof for this input

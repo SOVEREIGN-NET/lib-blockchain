@@ -532,7 +532,7 @@ impl PerformanceBenchmarks {
         Self::benchmark_token_transfers(1000)?;
         Self::benchmark_message_sending(1000)?;
 
-        println!("\n🏆 All benchmarks completed!");
+        println!("\n All benchmarks completed!");
         Ok(())
     }
 }

@@ -22,7 +22,7 @@ const EXAMPLE_WASM_CONTRACT: &[u8] = &[
 
 /// Demonstration of WASM sandboxing capabilities
 pub fn demonstrate_wasm_sandboxing() -> Result<()> {
-    println!("🧪 WASM Sandboxing Demonstration");
+    println!(" WASM Sandboxing Demonstration");
     println!("================================");
 
     // 1. Create different security levels
@@ -43,7 +43,7 @@ pub fn demonstrate_wasm_sandboxing() -> Result<()> {
 
 /// Demonstrate different security levels
 fn demonstrate_security_levels() -> Result<()> {
-    println!("\n📋 Security Levels Demonstration:");
+    println!("\n Security Levels Demonstration:");
     
     let levels = [
         ("Minimal (Development)", SecurityLevel::Minimal),
@@ -150,7 +150,7 @@ fn demonstrate_platform_isolation() -> Result<()> {
         SecurityLevel::Maximum
     )?;
     
-    println!("  📦 Isolation context created for contract");
+    println!("   Isolation context created for contract");
     
     // Demonstrate resource tracking
     match isolation_manager.track_memory_allocation("demo_contract", 1024) {

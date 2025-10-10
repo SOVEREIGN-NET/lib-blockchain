@@ -502,7 +502,7 @@ impl EconomicTransactionProcessor {
                    sender_addr, required_amount, sender_balance.available_balance);
         } else {
             // System transaction - log but don't deduct fees
-            debug!("🏛️ System transaction processed - Type: {}, Amount: {}", 
+            debug!(" System transaction processed - Type: {}, Amount: {}", 
                    economy_tx.tx_type.description(), economy_tx.amount);
         }
 
