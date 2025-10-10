@@ -34,21 +34,21 @@ async fn upload_hello_world_to_dht() -> Result<HashMap<String, String>, Box<dyn 
     // Read index.html
     let index_path = Path::new("../hello_world/index.html");
     let index_content = fs::read(index_path)?;
-    println!("   ✅ Read index.html ({} bytes)", index_content.len());
+    println!("    Read index.html ({} bytes)", index_content.len());
     
     // Read style.css
     let css_path = Path::new("../hello_world/style.css");
     let css_content = fs::read(css_path)?;
-    println!("   ✅ Read style.css ({} bytes)\n", css_content.len());
+    println!("    Read style.css ({} bytes)\n", css_content.len());
     
     // Upload index.html to DHT - compute REAL hash
-    println!("🌐 Computing content hashes for DHT storage...");
+    println!(" Computing content hashes for DHT storage...");
     let index_hash = hash_blake3(&index_content);
     let index_hash_str = format!("dht:{}", hex::encode(&index_hash));
     
     hashes.insert("index.html".to_string(), index_hash_str.clone());
     hashes.insert("index_size".to_string(), index_content.len().to_string());
-    println!("   ✅ index.html hash: {}\n", index_hash_str);
+    println!("    index.html hash: {}\n", index_hash_str);
     
     // Upload style.css to DHT - compute REAL hash
     let css_hash = hash_blake3(&css_content);
@@ -56,7 +56,7 @@ async fn upload_hello_world_to_dht() -> Result<HashMap<String, String>, Box<dyn 
     
     hashes.insert("style.css".to_string(), css_hash_str.clone());
     hashes.insert("css_size".to_string(), css_content.len().to_string());
-    println!("   ✅ style.css hash: {}\n", css_hash_str);
+    println!("    style.css hash: {}\n", css_hash_str);
     
     Ok(hashes)
 }
@@ -157,7 +157,7 @@ fn create_hello_world_manifest(content_hashes: HashMap<String, String>) -> Websi
 
 #[tokio::test]
 async fn test_hello_world_deployment_full_flow() {
-    println!("\n🚀 Starting Hello World Web4 Deployment Test\n");
+    println!("\n Starting Hello World Web4 Deployment Test\n");
     println!("{}", "=".repeat(60));
     
     // 0. Initialize DHT client for REAL storage
@@ -174,7 +174,7 @@ async fn test_hello_world_deployment_full_flow() {
     
     let mut dht_client = DHTClient::new(dht_identity.clone()).await
         .expect("Failed to initialize DHT client");
-    println!("   ✅ DHT client initialized");
+    println!("    DHT client initialized");
     println!("   Node ID: {}\n", hex::encode(&dht_identity.id.to_string().as_bytes()[..8]));
     
     // 0.5 Upload hello_world files to DHT and get REAL content hashes
@@ -202,7 +202,7 @@ async fn test_hello_world_deployment_full_flow() {
         [1u8; 32],
     );
     
-    println!("✅ Step 1: Executor and context initialized");
+    println!(" Step 1: Executor and context initialized");
     println!("   Owner: {}", hex::encode(owner_keypair.public_key.as_bytes()));
     println!("   Gas Limit: {}\n", context.gas_limit);
     
@@ -219,7 +219,7 @@ async fn test_hello_world_deployment_full_flow() {
         custom: HashMap::new(),
     };
     
-    println!("✅ Step 2: Website metadata created");
+    println!(" Step 2: Website metadata created");
     println!("   Title: {}", metadata.title);
     println!("   Version: {}\n", metadata.version);
     
@@ -233,11 +233,11 @@ async fn test_hello_world_deployment_full_flow() {
         config: HashMap::new(),
     };
     
-    println!("✅ Step 3: Deployment package created with REAL DHT hashes");
+    println!(" Step 3: Deployment package created with REAL DHT hashes");
     println!("   Domain: {}", deployment_package.domain);
     println!("   Files: {}", deployment_package.manifest.file_count);
     println!("   Total Size: {} bytes", deployment_package.manifest.total_size);
-    println!("   Content on DHT: ✅\n");
+    println!("   Content on DHT: \n");
     
     // 4. Deploy website contract using manifest
     let contract_id = format!("web4_{}", hex::encode(&context.tx_hash[..8]));
@@ -246,7 +246,7 @@ async fn test_hello_world_deployment_full_flow() {
         deployment_package,
     ).expect("Failed to create contract from deployment package");
     
-    println!("✅ Step 4: Web4 contract created from manifest");
+    println!(" Step 4: Web4 contract created from manifest");
     println!("   Contract ID: {}", contract_id);
     println!("   Domain: {}", web4_contract.domain);
     println!("   Routes: {}\n", web4_contract.routes.len());
@@ -267,7 +267,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Domain registration failed");
     
     assert!(register_result.success);
-    println!("✅ Step 5: Domain registered on blockchain");
+    println!(" Step 5: Domain registered on blockchain");
     println!("   Status: SUCCESS");
     println!("   Gas Used: {}\n", register_result.gas_used);
     
@@ -283,7 +283,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to get index content");
     
     assert!(index_result.success);
-    println!("✅ Step 6: Retrieved index.html content hash");
+    println!(" Step 6: Retrieved index.html content hash");
     println!("   Path: /");
     println!("   Gas Used: {}\n", index_result.gas_used);
     
@@ -299,7 +299,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to get CSS content");
     
     assert!(css_result.success);
-    println!("✅ Step 7: Retrieved style.css content hash");
+    println!(" Step 7: Retrieved style.css content hash");
     println!("   Path: /style.css");
     println!("   Gas Used: {}\n", css_result.gas_used);
     
@@ -315,7 +315,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to get routes");
     
     assert!(routes_result.success);
-    println!("✅ Step 8: Retrieved all routes");
+    println!(" Step 8: Retrieved all routes");
     println!("   Gas Used: {}\n", routes_result.gas_used);
     
     // 9. Get domain info (DNS resolution)
@@ -330,7 +330,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to resolve domain");
     
     assert!(domain_result.success);
-    println!("✅ Step 9: DNS resolution successful");
+    println!(" Step 9: DNS resolution successful");
     println!("   Domain: hello-world.zhtp");
     println!("   Gas Used: {}\n", domain_result.gas_used);
     
@@ -346,7 +346,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to get stats");
     
     assert!(stats_result.success);
-    println!("✅ Step 10: Contract statistics retrieved");
+    println!(" Step 10: Contract statistics retrieved");
     println!("   Gas Used: {}\n", stats_result.gas_used);
     
     // Summary
@@ -359,7 +359,7 @@ async fn test_hello_world_deployment_full_flow() {
     println!("   Total Routes: {}", web4_contract.routes.len());
     println!("   Total Gas Used: {}", context.gas_used);
     println!("   Gas Remaining: {}", context.remaining_gas());
-    println!("\n🌐 Website is now live on ZHTP network!");
+    println!("\n Website is now live on ZHTP network!");
     println!("   Access via: zhtp://hello-world.zhtp/");
     println!("{}", "=".repeat(60));
     
@@ -369,7 +369,7 @@ async fn test_hello_world_deployment_full_flow() {
 
 #[tokio::test]
 async fn test_dns_resolution_flow() {
-    println!("\n🔍 Testing DNS Resolution Flow\n");
+    println!("\n Testing DNS Resolution Flow\n");
     
     let storage = MemoryStorage::default();
     let mut executor = ContractExecutor::new(storage);
@@ -419,7 +419,7 @@ async fn test_dns_resolution_flow() {
         deployment_data,
     );
     
-    println!("✅ Contract created: {}", contract.domain);
+    println!(" Contract created: {}", contract.domain);
     
     // Test DNS lookup
     let domain_lookup = contract.get_domain("test-dns.zhtp");
@@ -429,7 +429,7 @@ async fn test_dns_resolution_flow() {
     assert_eq!(domain_record.domain, "test-dns.zhtp");
     assert_eq!(domain_record.status, DomainStatus::Active);
     
-    println!("✅ DNS Resolution: {} → {}", domain_record.domain, domain_record.contract_address);
+    println!(" DNS Resolution: {} → {}", domain_record.domain, domain_record.contract_address);
     println!("   Status: {:?}", domain_record.status);
     println!("   Registered: {}", domain_record.registered_at);
     println!("   Expires: {}", domain_record.expires_at);
@@ -475,22 +475,22 @@ async fn test_path_resolution_with_fallbacks() {
     // Test 1: Direct path
     let route1 = contract.resolve_path("/index.html");
     assert!(route1.is_some());
-    println!("✅ Direct path resolution: /index.html");
+    println!(" Direct path resolution: /index.html");
     
     // Test 2: Root path (should resolve to /index.html)
     let route2 = contract.resolve_path("/");
     assert!(route2.is_some());
-    println!("✅ Root path resolution: / → /index.html");
+    println!(" Root path resolution: / → /index.html");
     
     // Test 3: CSS file
     let route3 = contract.resolve_path("/style.css");
     assert!(route3.is_some());
-    println!("✅ CSS path resolution: /style.css");
+    println!(" CSS path resolution: /style.css");
     
     // Test 4: Non-existent path
     let route4 = contract.resolve_path("/nonexistent.html");
     assert!(route4.is_none());
-    println!("✅ Non-existent path correctly returns None");
+    println!(" Non-existent path correctly returns None");
     
     println!("\n🎉 Path Resolution Test PASSED!");
 }
@@ -577,7 +577,7 @@ async fn test_content_update_flow() {
         .expect("Content update failed");
     
     assert!(result.success);
-    println!("✅ Content updated successfully");
+    println!(" Content updated successfully");
     println!("   Path: /index.html");
     println!("   New Hash: QmNewContentHash456");
     println!("   Gas Used: {}\n", result.gas_used);
@@ -668,7 +668,7 @@ fn create_hello_world_manifest(content_hashes: HashMap<String, String>) -> Websi
 
 #[tokio::test]
 async fn test_hello_world_deployment_full_flow() {
-    println!("\n🚀 Starting Hello World Web4 Deployment Test\n");
+    println!("\n Starting Hello World Web4 Deployment Test\n");
     println!("=" .repeat(60));
     
     // 0. Initialize DHT client for REAL storage
@@ -676,7 +676,7 @@ async fn test_hello_world_deployment_full_flow() {
     let dht_identity = ZhtpIdentity::generate().expect("Failed to generate DHT identity");
     let mut dht_client = DHTClient::new(dht_identity.clone()).await
         .expect("Failed to initialize DHT client");
-    println!("   ✅ DHT client initialized");
+    println!("    DHT client initialized");
     println!("   Node ID: {}\n", hex::encode(&dht_identity.id.to_string().as_bytes()[..8]));
     
     // 0.5 Upload hello_world files to DHT and get REAL content hashes
@@ -702,7 +702,7 @@ async fn test_hello_world_deployment_full_flow() {
         [1u8; 32],
     );
     
-    println!("✅ Step 1: Executor and context initialized");
+    println!(" Step 1: Executor and context initialized");
     println!("   Owner: {}", hex::encode(owner_keypair.public_key.as_bytes()));
     println!("   Gas Limit: {}\n", context.gas_limit);
     
@@ -719,7 +719,7 @@ async fn test_hello_world_deployment_full_flow() {
         custom: HashMap::new(),
     };
     
-    println!("✅ Step 2: Website metadata created");
+    println!(" Step 2: Website metadata created");
     println!("   Title: {}", metadata.title);
     println!("   Version: {}\n", metadata.version);
     
@@ -733,11 +733,11 @@ async fn test_hello_world_deployment_full_flow() {
         config: HashMap::new(),
     };
     
-    println!("✅ Step 3: Deployment package created with REAL DHT hashes");
+    println!(" Step 3: Deployment package created with REAL DHT hashes");
     println!("   Domain: {}", deployment_package.domain);
     println!("   Files: {}", deployment_package.manifest.file_count);
     println!("   Total Size: {} bytes", deployment_package.manifest.total_size);
-    println!("   Content on DHT: ✅\n");
+    println!("   Content on DHT: \n");
     
     // 4. Deploy website contract using manifest
     let contract_id = format!("web4_{}", hex::encode(&context.tx_hash[..8]));
@@ -746,7 +746,7 @@ async fn test_hello_world_deployment_full_flow() {
         deployment_package,
     ).expect("Failed to create contract from deployment package");
     
-    println!("✅ Step 4: Web4 contract created from manifest");
+    println!(" Step 4: Web4 contract created from manifest");
     println!("   Contract ID: {}", contract_id);
     println!("   Domain: {}", web4_contract.domain);
     println!("   Routes: {}\n", web4_contract.routes.len());
@@ -767,7 +767,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Domain registration failed");
     
     assert!(register_result.success);
-    println!("✅ Step 5: Domain registered on blockchain");
+    println!(" Step 5: Domain registered on blockchain");
     println!("   Status: SUCCESS");
     println!("   Gas Used: {}\n", register_result.gas_used);
     
@@ -783,7 +783,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to get index content");
     
     assert!(index_result.success);
-    println!("✅ Step 6: Retrieved index.html content hash");
+    println!(" Step 6: Retrieved index.html content hash");
     println!("   Path: /");
     println!("   Gas Used: {}\n", index_result.gas_used);
     
@@ -799,7 +799,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to get CSS content");
     
     assert!(css_result.success);
-    println!("✅ Step 7: Retrieved style.css content hash");
+    println!(" Step 7: Retrieved style.css content hash");
     println!("   Path: /style.css");
     println!("   Gas Used: {}\n", css_result.gas_used);
     
@@ -815,7 +815,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to get routes");
     
     assert!(routes_result.success);
-    println!("✅ Step 8: Retrieved all routes");
+    println!(" Step 8: Retrieved all routes");
     println!("   Gas Used: {}\n", routes_result.gas_used);
     
     // 9. Get domain info (DNS resolution)
@@ -830,7 +830,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to resolve domain");
     
     assert!(domain_result.success);
-    println!("✅ Step 9: DNS resolution successful");
+    println!(" Step 9: DNS resolution successful");
     println!("   Domain: hello-world.zhtp");
     println!("   Gas Used: {}\n", domain_result.gas_used);
     
@@ -846,7 +846,7 @@ async fn test_hello_world_deployment_full_flow() {
         .expect("Failed to get stats");
     
     assert!(stats_result.success);
-    println!("✅ Step 10: Contract statistics retrieved");
+    println!(" Step 10: Contract statistics retrieved");
     println!("   Gas Used: {}\n", stats_result.gas_used);
     
     // Summary
@@ -859,7 +859,7 @@ async fn test_hello_world_deployment_full_flow() {
     println!("   Total Routes: {}", web4_contract.routes.len());
     println!("   Total Gas Used: {}", context.gas_used);
     println!("   Gas Remaining: {}", context.remaining_gas());
-    println!("\n🌐 Website is now live on ZHTP network!");
+    println!("\n Website is now live on ZHTP network!");
     println!("   Access via: zhtp://hello-world.zhtp/");
     println!("=" .repeat(60));
     
@@ -869,7 +869,7 @@ async fn test_hello_world_deployment_full_flow() {
 
 #[test]
 fn test_dns_resolution_flow() {
-    println!("\n🔍 Testing DNS Resolution Flow\n");
+    println!("\n Testing DNS Resolution Flow\n");
     
     let storage = MemoryStorage::default();
     let mut executor = ContractExecutor::new(storage);
@@ -919,7 +919,7 @@ fn test_dns_resolution_flow() {
         deployment_data,
     );
     
-    println!("✅ Contract created: {}", contract.domain);
+    println!(" Contract created: {}", contract.domain);
     
     // Test DNS lookup
     let domain_lookup = contract.get_domain("test-dns.zhtp");
@@ -929,7 +929,7 @@ fn test_dns_resolution_flow() {
     assert_eq!(domain_record.domain, "test-dns.zhtp");
     assert_eq!(domain_record.status, DomainStatus::Active);
     
-    println!("✅ DNS Resolution: {} → {}", domain_record.domain, domain_record.contract_address);
+    println!(" DNS Resolution: {} → {}", domain_record.domain, domain_record.contract_address);
     println!("   Status: {:?}", domain_record.status);
     println!("   Registered: {}", domain_record.registered_at);
     println!("   Expires: {}", domain_record.expires_at);
@@ -973,22 +973,22 @@ async fn test_path_resolution_with_fallbacks() {
     // Test 1: Direct path
     let route1 = contract.resolve_path("/index.html");
     assert!(route1.is_some());
-    println!("✅ Direct path resolution: /index.html");
+    println!(" Direct path resolution: /index.html");
     
     // Test 2: Root path (should resolve to /index.html)
     let route2 = contract.resolve_path("/");
     assert!(route2.is_some());
-    println!("✅ Root path resolution: / → /index.html");
+    println!(" Root path resolution: / → /index.html");
     
     // Test 3: CSS file
     let route3 = contract.resolve_path("/style.css");
     assert!(route3.is_some());
-    println!("✅ CSS path resolution: /style.css");
+    println!(" CSS path resolution: /style.css");
     
     // Test 4: Non-existent path
     let route4 = contract.resolve_path("/nonexistent.html");
     assert!(route4.is_none());
-    println!("✅ Non-existent path correctly returns None");
+    println!(" Non-existent path correctly returns None");
     
     println!("\n🎉 Path Resolution Test PASSED!");
 }
@@ -1073,7 +1073,7 @@ fn test_content_update_flow() {
         .expect("Content update failed");
     
     assert!(result.success);
-    println!("✅ Content updated successfully");
+    println!(" Content updated successfully");
     println!("   Path: /index.html");
     println!("   New Hash: QmNewContentHash456");
     println!("   Gas Used: {}\n", result.gas_used);

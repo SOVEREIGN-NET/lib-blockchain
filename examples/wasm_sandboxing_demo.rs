@@ -37,7 +37,7 @@ pub fn demonstrate_wasm_sandboxing() -> Result<()> {
     // 4. Show platform isolation
     demonstrate_platform_isolation()?;
 
-    println!("\n✅ WASM sandboxing demonstration completed successfully!");
+    println!("\n WASM sandboxing demonstration completed successfully!");
     Ok(())
 }
 
@@ -66,7 +66,7 @@ fn demonstrate_security_levels() -> Result<()> {
 
 /// Demonstrate resource limits
 fn demonstrate_resource_limits() -> Result<()> {
-    println!("\n⚡ Resource Limits Demonstration:");
+    println!("\n Resource Limits Demonstration:");
     
     // Create executor with maximum security
     let storage = MemoryStorage::default();
@@ -96,8 +96,8 @@ fn demonstrate_resource_limits() -> Result<()> {
     
     // Try to consume more gas than available
     match context.consume_gas(10000) {
-        Ok(_) => println!("    ❌ Unexpected: High gas consumption allowed"),
-        Err(e) => println!("    ✅ Expected: Gas limit enforced - {}", e),
+        Ok(_) => println!("     Unexpected: High gas consumption allowed"),
+        Err(e) => println!("     Expected: Gas limit enforced - {}", e),
     }
 
     Ok(())
@@ -105,7 +105,7 @@ fn demonstrate_resource_limits() -> Result<()> {
 
 /// Demonstrate host function restrictions
 fn demonstrate_host_function_restrictions() -> Result<()> {
-    println!("\n🔒 Host Function Restrictions:");
+    println!("\n Host Function Restrictions:");
     
     let safe_functions = [
         "zhtp_log",
@@ -123,12 +123,12 @@ fn demonstrate_host_function_restrictions() -> Result<()> {
         "memory_access",
     ];
 
-    println!("  ✅ Allowed functions:");
+    println!("   Allowed functions:");
     for func in &safe_functions {
         println!("    - {}", func);
     }
     
-    println!("  ❌ Blocked functions:");
+    println!("   Blocked functions:");
     for func in &unsafe_functions {
         println!("    - {}", func);
     }
@@ -154,25 +154,25 @@ fn demonstrate_platform_isolation() -> Result<()> {
     
     // Demonstrate resource tracking
     match isolation_manager.track_memory_allocation("demo_contract", 1024) {
-        Ok(_) => println!("  ✅ Memory allocation (1KB) tracked successfully"),
-        Err(e) => println!("  ❌ Memory allocation failed: {}", e),
+        Ok(_) => println!("   Memory allocation (1KB) tracked successfully"),
+        Err(e) => println!("   Memory allocation failed: {}", e),
     }
     
     // Try to allocate too much memory
     match isolation_manager.track_memory_allocation("demo_contract", 100 * 1024 * 1024) {
-        Ok(_) => println!("  ❌ Unexpected: Large allocation allowed"),
-        Err(e) => println!("  ✅ Expected: Large allocation blocked - {}", e),
+        Ok(_) => println!("   Unexpected: Large allocation allowed"),
+        Err(e) => println!("   Expected: Large allocation blocked - {}", e),
     }
     
     // Demonstrate syscall filtering
     match isolation_manager.track_syscall("demo_contract", "read") {
-        Ok(_) => println!("  ✅ Safe syscall 'read' allowed"),
-        Err(e) => println!("  ❌ Safe syscall blocked: {}", e),
+        Ok(_) => println!("   Safe syscall 'read' allowed"),
+        Err(e) => println!("   Safe syscall blocked: {}", e),
     }
     
     match isolation_manager.track_syscall("demo_contract", "exec") {
-        Ok(_) => println!("  ❌ Unexpected: Dangerous syscall allowed"),
-        Err(e) => println!("  ✅ Expected: Dangerous syscall blocked - {}", e),
+        Ok(_) => println!("   Unexpected: Dangerous syscall allowed"),
+        Err(e) => println!("   Expected: Dangerous syscall blocked - {}", e),
     }
 
     Ok(())
@@ -180,7 +180,7 @@ fn demonstrate_platform_isolation() -> Result<()> {
 
 /// Execute a simple WASM contract (mock execution)
 fn execute_mock_wasm_contract() -> Result<()> {
-    println!("\n🚀 Mock WASM Contract Execution:");
+    println!("\n Mock WASM Contract Execution:");
     
     let storage = MemoryStorage::default();
     let mut executor = ContractExecutor::new(storage);
@@ -196,7 +196,7 @@ fn execute_mock_wasm_contract() -> Result<()> {
 
     // Check if WASM runtime is available
     if executor.is_wasm_available() {
-        println!("  ✅ WASM runtime available");
+        println!("   WASM runtime available");
         
         // Execute WASM contract
         match executor.execute_wasm_contract(
@@ -206,16 +206,16 @@ fn execute_mock_wasm_contract() -> Result<()> {
             &mut context,
         ) {
             Ok(result) => {
-                println!("  ✅ WASM execution successful");
+                println!("   WASM execution successful");
                 println!("    Gas used: {}", result.gas_used);
                 println!("    Success: {}", result.success);
             },
             Err(e) => {
-                println!("  ⚠️  WASM execution error (expected for mock): {}", e);
+                println!("    WASM execution error (expected for mock): {}", e);
             }
         }
     } else {
-        println!("  ⚠️  WASM runtime not available (using fallback)");
+        println!("    WASM runtime not available (using fallback)");
         
         // Demonstrate native contract execution
         let call = ContractCall {
@@ -227,12 +227,12 @@ fn execute_mock_wasm_contract() -> Result<()> {
         
         match executor.execute_call(call, &mut context) {
             Ok(result) => {
-                println!("  ✅ Native contract execution successful");
+                println!("   Native contract execution successful");
                 println!("    Success: {}", result.success);
                 println!("    Gas used: {}", context.gas_used);
             },
             Err(e) => {
-                println!("  ❌ Contract execution failed: {}", e);
+                println!("   Contract execution failed: {}", e);
             }
         }
     }

@@ -903,7 +903,7 @@ impl Blockchain {
                         // Generate contract ID from the note field or domain
                         let contract_id = lib_crypto::hash_blake3(web4_contract.domain.as_bytes());
                         self.register_web4_contract(contract_id, web4_contract, block.height());
-                        info!("🌐 Processed Web4Contract deployment in block {}", block.height());
+                        info!(" Processed Web4Contract deployment in block {}", block.height());
                     } 
                     // Try to deserialize as TokenContract (bincode format)
                     else if let Ok(token_contract) = bincode::deserialize::<crate::contracts::TokenContract>(output.commitment.as_bytes()) {
@@ -911,7 +911,7 @@ impl Blockchain {
                         self.register_token_contract(contract_id, token_contract, block.height());
                         info!("💼 Processed TokenContract deployment in block {}", block.height());
                     } else {
-                        debug!("⚠️ Could not deserialize contract in transaction {}", transaction.hash());
+                        debug!(" Could not deserialize contract in transaction {}", transaction.hash());
                     }
                 }
             }
@@ -1623,7 +1623,7 @@ impl Blockchain {
         }
 
         // All blocks verified - replace our state INCLUDING smart contracts
-        info!("✅ Imported blockchain from peer:");
+        info!(" Imported blockchain from peer:");
         info!("   - {} blocks", import.blocks.len());
         info!("   - {} token contracts", import.token_contracts.len());
         info!("   - {} web4 contracts", import.web4_contracts.len());

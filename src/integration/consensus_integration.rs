@@ -248,7 +248,7 @@ impl BlockchainConsensusCoordinator {
                 warn!("DAO error: {}", error);
             }
             ConsensusEvent::ByzantineFault { error } => {
-                warn!("🚨 Byzantine fault detected: {}", error);
+                warn!(" Byzantine fault detected: {}", error);
             }
             ConsensusEvent::RewardError { error } => {
                 warn!("💸 Reward error: {}", error);

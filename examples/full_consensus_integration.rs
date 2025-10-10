@@ -128,7 +128,7 @@ async fn main() -> Result<()> {
     }
 
     // 9. Simulate blockchain operation for a few rounds
-    println!("\n⚡ Running blockchain for 10 seconds to demonstrate consensus...");
+    println!("\n Running blockchain for 10 seconds to demonstrate consensus...");
     
     for round in 1..=5 {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;

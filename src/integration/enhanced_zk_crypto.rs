@@ -543,13 +543,13 @@ impl EnhancedConsensusValidator {
                         Ok(is_valid)
                     }
                     Err(e) => {
-                        error!("🚨 Consensus proof verification error: {}", e);
+                        error!(" Consensus proof verification error: {}", e);
                         Ok(false)
                     }
                 }
             }
             Err(e) => {
-                error!("🚨 Consensus proof creation failed: {}", e);
+                error!(" Consensus proof creation failed: {}", e);
                 Ok(false)
             }
         }
@@ -573,7 +573,7 @@ impl EnhancedConsensusValidator {
                     debug!("ZK proof valid for input {}", i);
                 }
                 Err(e) => {
-                    error!("🚨 ZK proof verification error for input {}: {}", i, e);
+                    error!(" ZK proof verification error for input {}: {}", i, e);
                     return Ok(false);
                 }
             }
