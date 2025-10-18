@@ -15,9 +15,11 @@ use lib_consensus::{
     ValidatorManager, Validator, ValidatorStatus,
     DaoEngine, DaoProposal, DaoProposalType, DaoVoteChoice,
     RewardCalculator, RewardRound,
-    ConsensusProposal, ConsensusVote, VoteType, ConsensusStep,
+    ConsensusProposal, ConsensusStep,
     ConsensusType, UsefulWorkType, ConsensusProof
 };
+// Import the correct ConsensusVote and VoteType from types module (not mesh_consensus)
+use lib_consensus::types::{ConsensusVote, VoteType};
 use lib_crypto::{Hash, PostQuantumSignature, hash_blake3, KeyPair};
 use lib_identity::IdentityId;
 
@@ -364,7 +366,7 @@ impl BlockchainConsensusCoordinator {
     async fn handle_vote_received(&self, vote: ConsensusVote) -> Result<()> {
         debug!(" Received consensus vote: {:?} on proposal {:?}", vote.vote_type, vote.proposal_id);
 
-        // Store vote
+        // Store vote - clone proposal_id to avoid partial move
         let proposal_id = vote.proposal_id.clone();
         self.active_votes.write().await
             .entry(proposal_id)
@@ -787,13 +789,19 @@ impl BlockchainConsensusCoordinator {
         // Log the validator casting the vote
         debug!("Validator {} casting vote {:?} for proposal {}", 
                validator_id, vote_type, proposal_id);
+        
+        // Get current height and round from consensus engine
+        let current_round = consensus_engine.current_round();
+        let height = current_round.height;
+        let round = current_round.round;
+        
         let vote = ConsensusVote {
             id: lib_crypto::Hash::from_bytes(&[0u8; 32]),
             voter: self.local_validator_id.clone().unwrap_or_else(|| lib_crypto::Hash::from_bytes(&[0u8; 32])),
             proposal_id: proposal_id.clone(),
             vote_type: vote_type.clone(),
-            height: 0, // Would be set properly in implementation
-            round: 0,
+            height,
+            round,
             timestamp: current_timestamp(),
             signature: self.create_vote_signature(proposal_id, &vote_type).await?,
         };
@@ -1179,12 +1187,13 @@ impl BlockchainConsensusCoordinator {
 
                 let reward_tx = Transaction {
                     version: 1,
+                    transaction_type: TransactionType::Transfer,
+                    chain_id: 0x03, // Development network default (backward compatible)
                     inputs: vec![], // System transaction, no inputs
                     outputs: vec![output],
                     fee: 0, // No fee for reward transactions
-                    memo: format!("Validator reward: {} ZHTP (height: {})", reward.total_reward, reward_round.height).into_bytes(),
                     signature,
-                    transaction_type: TransactionType::Transfer,
+                    memo: format!("Validator reward: {} ZHTP (height: {})", reward.total_reward, reward_round.height).into_bytes(),
                     identity_data: None,
                     wallet_data: None,
                 };

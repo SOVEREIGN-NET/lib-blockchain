@@ -421,6 +421,7 @@ impl EconomicTransactionProcessor {
         Ok(BlockchainTransaction {
             version: 1,
             transaction_type: blockchain_tx_type,
+            chain_id: 0x03, // Development network default (backward compatible)
             inputs,
             outputs,
             fee: economy_tx.total_fee,
@@ -450,6 +451,7 @@ impl EconomicTransactionProcessor {
         let temp_transaction = BlockchainTransaction {
             version: 1,
             transaction_type: BlockchainTransactionType::Transfer,
+            chain_id: 0x03, // Development network default (backward compatible)
             inputs: inputs.to_vec(),
             outputs: outputs.to_vec(),
             fee: economy_tx.total_fee,

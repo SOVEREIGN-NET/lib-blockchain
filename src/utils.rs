@@ -211,6 +211,7 @@ pub mod testing {
         Transaction {
             version: 1,
             transaction_type: crate::types::TransactionType::Transfer,
+            chain_id: 0x03, // Development network default (backward compatible)
             inputs: vec![],
             outputs: vec![],
             fee: 1000,
@@ -222,6 +223,7 @@ pub mod testing {
             },
             memo: b"test transaction".to_vec(),
             identity_data: None,
+            wallet_data: None,
         }
     }
     

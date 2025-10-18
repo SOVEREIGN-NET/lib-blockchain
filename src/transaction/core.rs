@@ -14,6 +14,9 @@ pub struct Transaction {
     pub version: u32,
     /// Type of transaction (transfer, identity, contract)
     pub transaction_type: TransactionType,
+    /// Chain ID for replay protection (0x01=mainnet, 0x02=testnet, 0x03=dev)
+    /// This prevents transactions from one network being replayed on another
+    pub chain_id: u8,
     /// Transaction inputs (UTXOs being spent)
     pub inputs: Vec<TransactionInput>,
     /// Transaction outputs (new UTXOs being created)
@@ -118,6 +121,30 @@ impl Transaction {
         Transaction {
             version: 1,
             transaction_type: TransactionType::Transfer,
+            chain_id: 0x03, // Default to Development network for backward compatibility
+            inputs,
+            outputs,
+            fee,
+            signature,
+            memo,
+            identity_data: None,
+            wallet_data: None,
+        }
+    }
+    
+    /// Create a new transaction with explicit chain ID
+    pub fn new_with_chain_id(
+        chain_id: u8,
+        inputs: Vec<TransactionInput>,
+        outputs: Vec<TransactionOutput>,
+        fee: u64,
+        signature: Signature,
+        memo: Vec<u8>,
+    ) -> Self {
+        Transaction {
+            version: 1,
+            transaction_type: TransactionType::Transfer,
+            chain_id,
             inputs,
             outputs,
             fee,
@@ -138,6 +165,7 @@ impl Transaction {
         Transaction {
             version: 1,
             transaction_type: TransactionType::IdentityRegistration,
+            chain_id: 0x03, // Default to Development network for backward compatibility
             inputs: Vec::new(), // Identity registration doesn't have inputs
             outputs,
             fee: identity_data.registration_fee + identity_data.dao_fee,
@@ -160,6 +188,7 @@ impl Transaction {
         Transaction {
             version: 1,
             transaction_type: TransactionType::IdentityUpdate,
+            chain_id: 0x03, // Default to Development network for backward compatibility
             inputs,
             outputs,
             fee,
@@ -196,6 +225,7 @@ impl Transaction {
         Transaction {
             version: 1,
             transaction_type: TransactionType::IdentityRevocation,
+            chain_id: 0x03, // Default to Development network for backward compatibility
             inputs,
             outputs: Vec::new(),
             fee,
@@ -216,6 +246,7 @@ impl Transaction {
         Transaction {
             version: 1,
             transaction_type: TransactionType::WalletRegistration,
+            chain_id: 0x03, // Default to Development network for backward compatibility
             inputs: Vec::new(), // Wallet registration doesn't need inputs
             outputs,
             fee: wallet_data.registration_fee,
@@ -363,5 +394,76 @@ impl IdentityTransactionData {
     /// Check if this is a revoked identity
     pub fn is_revoked(&self) -> bool {
         self.identity_type == "revoked"
+    }
+}
+
+// Helper function for creating mesh genesis transactions
+impl Transaction {
+    /// Create a mesh genesis transaction
+    /// 
+    /// This is used internally by LocalMeshBlockchain to create the genesis block
+    /// for a new mesh network.
+    pub fn create_mesh_genesis_transaction(
+        mesh_id: crate::mesh::types::MeshId,
+        coordinator: Hash,
+        memo: Vec<u8>,
+    ) -> anyhow::Result<Self> {
+        use crate::integration::crypto_integration::{Signature, PublicKey};
+        
+        // Create a genesis output
+        let genesis_commitment = {
+            let data = format!("mesh_genesis_{:?}", mesh_id);
+            let hash_bytes = blake3::hash(data.as_bytes());
+            let mut bytes = [0u8; 32];
+            bytes.copy_from_slice(&hash_bytes.as_bytes()[..32]);
+            Hash::new(bytes)
+        };
+        
+        let genesis_note = {
+            let hash_bytes = blake3::hash(&memo);
+            let mut bytes = [0u8; 32];
+            bytes.copy_from_slice(&hash_bytes.as_bytes()[..32]);
+            Hash::new(bytes)
+        };
+        
+        let recipient = PublicKey {
+            dilithium_pk: coordinator.as_bytes().to_vec(),
+            kyber_pk: vec![],
+            key_id: [0u8; 32],
+        };
+        
+        let output = TransactionOutput {
+            commitment: genesis_commitment,
+            note: genesis_note,
+            recipient,
+        };
+        
+        // Create a system transaction with no inputs
+        let signature = Signature {
+            algorithm: lib_crypto::SignatureAlgorithm::Dilithium2,
+            signature: vec![0u8; 64], // Genesis signature
+            public_key: PublicKey {
+                dilithium_pk: vec![0u8; 32],
+                kyber_pk: vec![],
+                key_id: [0u8; 32],
+            },
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+        
+        Ok(Transaction {
+            version: 1,
+            transaction_type: TransactionType::System,
+            chain_id: 0x03, // Mesh networks use dev chain ID by default
+            inputs: vec![],
+            outputs: vec![output],
+            fee: 0,
+            signature,
+            memo,
+            identity_data: None,
+            wallet_data: None,
+        })
     }
 }

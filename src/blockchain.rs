@@ -35,6 +35,12 @@ pub struct Blockchain {
     pub difficulty: Difficulty,
     /// Total work done (cumulative difficulty)
     pub total_work: u128,
+    /// Network identifier (zhtp-mainnet, zhtp-testnet, zhtp-dev)
+    pub network_id: String,
+    /// Chain ID for replay protection (0x01=mainnet, 0x02=testnet, 0x03=dev)
+    pub chain_id: u8,
+    /// Genesis block hash (network-specific, immutable)
+    pub genesis_hash: Hash,
     /// UTXO set for transaction validation
     pub utxo_set: HashMap<Hash, TransactionOutput>,
     /// Used nullifiers to prevent double-spending
@@ -88,15 +94,25 @@ pub struct EconomicsTransaction {
 }
 
 impl Blockchain {
-    /// Create a new blockchain with genesis block
-    pub fn new() -> Result<Self> {
-        let genesis_block = crate::block::create_genesis_block();
+    /// Create a new blockchain for specific network
+    pub fn new_for_network(network: crate::block::GenesisConfig) -> Result<Self> {
+        let network_id = network.network_id().to_string();
+        let chain_id = network.chain_id();
+        let genesis_block = crate::block::create_genesis_block_for_network(network);
+        let genesis_hash = genesis_block.hash();
+        
+        info!("🚀 Creating new blockchain for network: {} (chain_id: 0x{:02x})", network_id, chain_id);
+        info!("   Genesis block hash: {:?}", genesis_hash);
+        info!("   Genesis timestamp: {}", genesis_block.timestamp());
         
         let mut blockchain = Blockchain {
             blocks: vec![genesis_block.clone()],
             height: 0,
-            difficulty: Difficulty::from_bits(crate::INITIAL_DIFFICULTY),
+            difficulty: genesis_block.difficulty(),
             total_work: 0,
+            network_id,
+            chain_id,
+            genesis_hash,
             utxo_set: HashMap::new(),
             nullifier_set: HashSet::new(),
             pending_transactions: Vec::new(),
@@ -117,7 +133,15 @@ impl Blockchain {
         };
 
         blockchain.update_utxo_set(&genesis_block)?;
+        
+        info!("✅ Blockchain initialized successfully for {}", blockchain.network_id);
         Ok(blockchain)
+    }
+    
+    /// Create a new blockchain with genesis block (uses Development network by default)
+    /// This maintains backward compatibility with existing code
+    pub fn new() -> Result<Self> {
+        Self::new_for_network(crate::block::GenesisConfig::Development)
     }
 
     /// Create a new blockchain with storage manager
@@ -545,6 +569,30 @@ impl Blockchain {
 
     /// Add a transaction to the pending pool
     pub fn add_pending_transaction(&mut self, transaction: Transaction) -> Result<()> {
+        // 🔒 CRITICAL: Validate chain ID to prevent cross-network replay attacks
+        if transaction.chain_id != self.chain_id {
+            let tx_network = crate::block::genesis_config_from_chain_id(transaction.chain_id)
+                .map(|c| c.network_id().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            
+            error!(
+                "❌ REJECTED: Transaction chain_id 0x{:02x} does not match blockchain chain_id 0x{:02x}",
+                transaction.chain_id,
+                self.chain_id
+            );
+            error!("   Transaction is for network: {}", tx_network);
+            error!("   This blockchain is for network: {}", self.network_id);
+            
+            return Err(anyhow::anyhow!(
+                "Transaction chain_id mismatch: Transaction is for chain 0x{:02x} ({}) but this blockchain is chain 0x{:02x} ({}). \
+                 This prevents replay attacks between networks.",
+                transaction.chain_id,
+                tx_network,
+                self.chain_id,
+                self.network_id
+            ));
+        }
+        
         // Verify transaction before adding to pool
         if !self.verify_transaction(&transaction)? {
             return Err(anyhow::anyhow!("Transaction verification failed"));

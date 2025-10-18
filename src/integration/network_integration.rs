@@ -177,12 +177,14 @@ mod tests {
         let transaction = Transaction {
             version: 1,
             transaction_type: TransactionType::Transfer,
+            chain_id: 0x03, // Development network default (backward compatible)
             inputs: Vec::new(),
             outputs: Vec::new(),
             fee: 100,
             signature: keypair.sign(b"test_data")?,
             memo: b"test memo".to_vec(),
             identity_data: None,
+            wallet_data: None,
         };
         
         let serialized = serialize_transaction_for_network(&transaction)?;

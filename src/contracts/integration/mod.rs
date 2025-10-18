@@ -245,6 +245,7 @@ impl ContractTransactionBuilder {
         let temp_tx = Transaction {
             version: 1,
             transaction_type: TransactionType::ContractExecution,
+            chain_id: 0x03, // Development network default (backward compatible)
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
             fee: self.fee,
@@ -265,6 +266,7 @@ impl ContractTransactionBuilder {
         let tx = Transaction {
             version: 1,
             transaction_type: TransactionType::ContractExecution,
+            chain_id: 0x03, // Development network default (backward compatible)
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
             fee: self.fee,

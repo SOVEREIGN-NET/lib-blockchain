@@ -17,6 +17,7 @@ pub mod blockchain;
 pub mod mempool;
 pub mod integration;
 pub mod utils;
+pub mod mesh;  // NEW: Local mesh blockchain support
 
 // Smart contracts submodule (feature-gated)
 #[cfg(feature = "contracts")]
@@ -205,12 +206,17 @@ use std::sync::OnceLock;
 /// Global shared blockchain instance
 static SHARED_BLOCKCHAIN: OnceLock<Arc<RwLock<Blockchain>>> = OnceLock::new();
 
-/// Initialize the global shared blockchain
-pub fn initialize_shared_blockchain() -> Arc<RwLock<Blockchain>> {
-    let blockchain = Blockchain::new().expect("Failed to create blockchain");
+/// Initialize the global shared blockchain for a specific network
+pub fn initialize_shared_blockchain_for_network(network: block::GenesisConfig) -> Arc<RwLock<Blockchain>> {
+    let blockchain = Blockchain::new_for_network(network).expect("Failed to create blockchain");
     let shared = Arc::new(RwLock::new(blockchain));
     SHARED_BLOCKCHAIN.set(shared.clone()).expect("Shared blockchain already initialized");
     shared
+}
+
+/// Initialize the global shared blockchain (uses Development network by default for backward compatibility)
+pub fn initialize_shared_blockchain() -> Arc<RwLock<Blockchain>> {
+    initialize_shared_blockchain_for_network(block::GenesisConfig::Development)
 }
 
 /// Get the shared blockchain instance
@@ -218,6 +224,6 @@ pub async fn get_shared_blockchain() -> Result<Arc<RwLock<Blockchain>>, anyhow::
     if let Some(blockchain) = SHARED_BLOCKCHAIN.get() {
         Ok(blockchain.clone())
     } else {
-        Err(anyhow::anyhow!("Shared blockchain not initialized. Call initialize_shared_blockchain() first."))
+        Err(anyhow::anyhow!("Shared blockchain not initialized. Call initialize_shared_blockchain() or initialize_shared_blockchain_for_network() first."))
     }
 }

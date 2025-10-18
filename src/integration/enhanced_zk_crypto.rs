@@ -417,6 +417,7 @@ impl EnhancedTransactionCreator {
         let mut transaction = Transaction {
             version: 1,
             transaction_type: crate::types::TransactionType::Transfer,
+            chain_id: 0x03, // Development network default (backward compatible)
             inputs: vec![input],
             outputs: vec![output],
             fee,

@@ -30,6 +30,8 @@ pub enum TransactionType {
     UbiDistribution,
     /// Wallet registration/creation on blockchain
     WalletRegistration,
+    /// System transaction for genesis blocks and mesh operations
+    System,
 }
 
 impl TransactionType {
@@ -69,6 +71,7 @@ impl TransactionType {
             TransactionType::ContentUpload => "Content upload transaction",
             TransactionType::UbiDistribution => "Universal Basic Income distribution",
             TransactionType::WalletRegistration => "Wallet registration/creation",
+            TransactionType::System => "System transaction for genesis/mesh operations",
         }
     }
 
@@ -86,6 +89,7 @@ impl TransactionType {
             TransactionType::ContentUpload => "content_upload",
             TransactionType::UbiDistribution => "ubi_distribution",
             TransactionType::WalletRegistration => "wallet_registration",
+            TransactionType::System => "system",
         }
     }
 
@@ -103,6 +107,7 @@ impl TransactionType {
             "content_upload" => Some(TransactionType::ContentUpload),
             "ubi_distribution" => Some(TransactionType::UbiDistribution),
             "wallet_registration" => Some(TransactionType::WalletRegistration),
+            "system" => Some(TransactionType::System),
             _ => None,
         }
     }

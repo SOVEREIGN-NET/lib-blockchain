@@ -147,6 +147,7 @@ impl TransactionBuilder {
         let mut transaction = Transaction {
             version: self.version,
             transaction_type: self.transaction_type,
+            chain_id: 0x03, // Development network default (backward compatible)
             inputs: inputs_with_proofs,
             outputs: self.outputs,
             fee: self.fee,
@@ -410,6 +411,10 @@ pub mod utils {
             TransactionType::WalletRegistration => {
                 // Wallet registration transactions should have wallet data
                 // Validation will be handled during transaction validation
+            }
+            TransactionType::System => {
+                // System transactions for genesis blocks and mesh operations
+                // No specific validation needed at creation time
             }
         }
 

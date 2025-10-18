@@ -68,6 +68,17 @@ impl Hash {
     pub fn zero() -> Self {
         Hash([0u8; 32])
     }
+    
+    /// Combine two hashes into a new hash
+    pub fn combine(left: &Hash, right: &Hash) -> Hash {
+        let mut data = Vec::with_capacity(64);
+        data.extend_from_slice(&left.0);
+        data.extend_from_slice(&right.0);
+        let hash_bytes = blake3::hash(&data);
+        let mut result = [0u8; 32];
+        result.copy_from_slice(&hash_bytes.as_bytes()[..32]);
+        Hash(result)
+    }
 }
 
 impl Default for Hash {

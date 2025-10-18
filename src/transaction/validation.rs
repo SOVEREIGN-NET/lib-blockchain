@@ -119,6 +119,10 @@ impl TransactionValidator {
                 // Wallet registration transactions - validate wallet data and ownership
                 self.validate_wallet_registration_transaction(transaction)?;
             },
+            TransactionType::System => {
+                // System transactions for genesis blocks and mesh operations
+                // These are validated by the blockchain layer, not transaction layer
+            },
         }
 
         // Signature validation (always required)
@@ -170,6 +174,10 @@ impl TransactionValidator {
             TransactionType::WalletRegistration => {
                 // Wallet registration transactions - validate wallet data and ownership
                 self.validate_wallet_registration_transaction(transaction)?;
+            },
+            TransactionType::System => {
+                // System transactions for genesis blocks and mesh operations
+                // These are validated by the blockchain layer, not transaction layer
             },
         }
 
@@ -740,6 +748,10 @@ impl<'a> StatefulTransactionValidator<'a> {
                 // Wallet registration transactions - validate wallet data and ownership
                 stateless_validator.validate_transaction(transaction)?;
             },
+            TransactionType::System => {
+                // System transactions for genesis blocks and mesh operations
+                // These are validated by the blockchain layer, not transaction layer
+            },
         }
 
         //  CRITICAL FIX: Verify sender identity exists on blockchain
@@ -859,7 +871,12 @@ pub mod utils {
             TransactionType::WalletRegistration => {
                 // Wallet registration should have wallet_data
                 transaction.wallet_data.is_some()
-            }
+            },
+            TransactionType::System => {
+                // System transactions for genesis blocks and mesh operations
+                // No strict requirements at this level
+                true
+            },
         }
     }
 
