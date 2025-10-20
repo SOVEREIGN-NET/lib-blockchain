@@ -44,6 +44,38 @@ pub struct ContentRoute {
     pub updated_at: u64,
 }
 
+impl ContentRoute {
+    /// Create ContentRoute from lib-storage ContentMetadata
+    /// Extracts key metadata fields and serializes them to HashMap
+    pub fn from_content_metadata(
+        path: String,
+        content_hash: String,
+        metadata: &lib_storage::ContentMetadata,
+    ) -> Self {
+        let mut metadata_map = HashMap::new();
+        metadata_map.insert("size".to_string(), metadata.size.to_string());
+        metadata_map.insert("content_type".to_string(), metadata.content_type.clone());
+        metadata_map.insert("filename".to_string(), metadata.filename.clone());
+        metadata_map.insert("tier".to_string(), format!("{:?}", metadata.tier));
+        metadata_map.insert("encryption".to_string(), format!("{:?}", metadata.encryption));
+        metadata_map.insert("replication".to_string(), metadata.replication_factor.to_string());
+        metadata_map.insert("cost_per_day".to_string(), metadata.cost_per_day.to_string());
+        metadata_map.insert("access_count".to_string(), metadata.access_count.to_string());
+        metadata_map.insert("created_at".to_string(), metadata.created_at.to_string());
+        metadata_map.insert("last_accessed".to_string(), metadata.last_accessed.to_string());
+        metadata_map.insert("tags".to_string(), metadata.tags.join(","));
+        
+        Self {
+            path,
+            content_hash,
+            content_type: metadata.content_type.clone(),
+            size: metadata.size,
+            metadata: metadata_map,
+            updated_at: metadata.last_accessed,
+        }
+    }
+}
+
 /// Domain ownership record
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DomainRecord {

@@ -513,6 +513,67 @@ impl Web4Contract {
         (hash.starts_with("dht:") && hash.len() > 10) ||
         (hash.starts_with("ipfs:") && hash.len() > 10)
     }
+    
+    /// Get detailed metadata for a specific content route
+    pub fn get_route_metadata(&self, path: &str) -> Option<HashMap<String, String>> {
+        self.routes.get(path).map(|route| route.metadata.clone())
+    }
+    
+    /// Get all content statistics for the website
+    pub fn get_content_statistics(&self) -> ContentStatistics {
+        let mut total_size = 0u64;
+        let mut total_access_count = 0u64;
+        let mut content_types: HashMap<String, u64> = HashMap::new();
+        
+        for route in self.routes.values() {
+            total_size += route.size;
+            
+            // Extract access count from metadata if available
+            if let Some(access_count) = route.metadata.get("access_count")
+                .and_then(|s| s.parse::<u64>().ok()) {
+                total_access_count += access_count;
+            }
+            
+            // Count content types
+            *content_types.entry(route.content_type.clone()).or_insert(0) += 1;
+        }
+        
+        ContentStatistics {
+            domain: self.domain.clone(),
+            total_routes: self.routes.len(),
+            total_size,
+            total_access_count,
+            content_types,
+            last_updated: self.updated_at,
+            created_at: self.created_at,
+        }
+    }
+    
+    /// Get metadata summary for all routes
+    pub fn get_all_routes_metadata(&self) -> HashMap<String, HashMap<String, String>> {
+        self.routes.iter()
+            .map(|(path, route)| (path.clone(), route.metadata.clone()))
+            .collect()
+    }
+}
+
+/// Content statistics for a website
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentStatistics {
+    /// Domain name
+    pub domain: String,
+    /// Total number of routes
+    pub total_routes: usize,
+    /// Total content size in bytes
+    pub total_size: u64,
+    /// Total access count across all content
+    pub total_access_count: u64,
+    /// Content types distribution
+    pub content_types: HashMap<String, u64>,
+    /// Last update timestamp
+    pub last_updated: u64,
+    /// Creation timestamp
+    pub created_at: u64,
 }
 
 impl Web4Contract {

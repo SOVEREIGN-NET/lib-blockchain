@@ -1116,6 +1116,12 @@ impl BlockchainStorageManager {
                 .unwrap()
                 .as_secs(),
             recovery_keys: vec![],
+            owner_identity_id: None,  // System identity has no owner
+            reward_wallet_id: None,   // System identity doesn't need rewards
+            encrypted_master_seed: None,
+            next_wallet_index: 0,
+            password_hash: None,
+            master_seed_phrase: None,
         })
     }
 

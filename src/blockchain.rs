@@ -17,6 +17,15 @@ use crate::integration::economic_integration::{EconomicTransactionProcessor, Tre
 use crate::integration::consensus_integration::{BlockchainConsensusCoordinator, ConsensusStatus};
 use crate::integration::storage_integration::{BlockchainStorageManager, BlockchainStorageConfig, StorageOperationResult};
 
+/// Messages for real-time blockchain synchronization
+#[derive(Debug, Clone)]
+pub enum BlockchainBroadcastMessage {
+    /// New block created locally and should be broadcast to peers
+    NewBlock(Block),
+    /// New transaction submitted locally and should be broadcast to peers
+    NewTransaction(Transaction),
+}
+
 // Import lib-proofs for recursive proof aggregation
 // Import lib-proofs for recursive proof aggregation
 use lib_proofs::{
@@ -73,6 +82,9 @@ pub struct Blockchain {
     pub auto_persist_enabled: bool,
     /// Block counter for auto-persistence
     pub blocks_since_last_persist: u64,
+    /// Broadcast channel for real-time block/transaction propagation
+    #[serde(skip)]
+    pub broadcast_sender: Option<tokio::sync::mpsc::UnboundedSender<BlockchainBroadcastMessage>>,
 }
 
 /// Economics transaction record (simplified for blockchain package)
@@ -85,6 +97,18 @@ pub struct EconomicsTransaction {
     pub tx_type: String,
     pub timestamp: u64,
     pub block_height: u64,
+}
+
+/// Blockchain import structure for deserializing received chains
+#[derive(Serialize, Deserialize)]
+pub struct BlockchainImport {
+    pub blocks: Vec<Block>,
+    pub utxo_set: HashMap<Hash, TransactionOutput>,
+    pub identity_registry: HashMap<String, IdentityTransactionData>,
+    pub wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+    pub token_contracts: HashMap<[u8; 32], crate::contracts::TokenContract>,
+    pub web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
+    pub contract_blocks: HashMap<[u8; 32], u64>,
 }
 
 impl Blockchain {
@@ -114,6 +138,7 @@ impl Blockchain {
             proof_aggregator: None,
             auto_persist_enabled: true,
             blocks_since_last_persist: 0,
+            broadcast_sender: None,
         };
 
         blockchain.update_utxo_set(&genesis_block)?;
@@ -148,6 +173,12 @@ impl Blockchain {
         
         info!("Recursive proof aggregator initialized successfully");
         Ok(())
+    }
+
+    /// Set broadcast channel for real-time block/transaction propagation
+    pub fn set_broadcast_channel(&mut self, sender: tokio::sync::mpsc::UnboundedSender<BlockchainBroadcastMessage>) {
+        debug!("Blockchain broadcast channel configured");
+        self.broadcast_sender = Some(sender);
     }
 
     /// Load blockchain from persistent storage
@@ -357,6 +388,15 @@ impl Blockchain {
         // Update persistence counter
         self.blocks_since_last_persist += 1;
 
+        // Broadcast new block to mesh network (if channel configured)
+        if let Some(ref sender) = self.broadcast_sender {
+            if let Err(e) = sender.send(BlockchainBroadcastMessage::NewBlock(block.clone())) {
+                warn!("Failed to broadcast new block to network: {}", e);
+            } else {
+                debug!("Block {} broadcast to mesh network", block.height());
+            }
+        }
+
         Ok(())
     }
 
@@ -550,7 +590,17 @@ impl Blockchain {
             return Err(anyhow::anyhow!("Transaction verification failed"));
         }
 
-        self.pending_transactions.push(transaction);
+        self.pending_transactions.push(transaction.clone());
+
+        // Broadcast new transaction to mesh network (if channel configured)
+        if let Some(ref sender) = self.broadcast_sender {
+            if let Err(e) = sender.send(BlockchainBroadcastMessage::NewTransaction(transaction.clone())) {
+                warn!("Failed to broadcast new transaction to network: {}", e);
+            } else {
+                debug!("Transaction {} broadcast to mesh network", transaction.hash());
+            }
+        }
+
         Ok(())
     }
 
@@ -1587,21 +1637,10 @@ impl Blockchain {
             .map_err(|e| anyhow::anyhow!("Failed to serialize blockchain: {}", e))
     }
 
-    /// Import and validate a blockchain from another node
-    /// Verifies all blocks before accepting the chain
-    pub fn import_chain(&mut self, data: Vec<u8>) -> Result<()> {
-        #[derive(Deserialize)]
-        struct BlockchainExport {
-            blocks: Vec<Block>,
-            utxo_set: HashMap<Hash, TransactionOutput>,
-            identity_registry: HashMap<String, IdentityTransactionData>,
-            wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
-            token_contracts: HashMap<[u8; 32], crate::contracts::TokenContract>,
-            web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
-            contract_blocks: HashMap<[u8; 32], u64>,
-        }
-
-        let import: BlockchainExport = bincode::deserialize(&data)
+    /// Evaluate and potentially merge a blockchain from another node
+    /// Uses consensus rules to decide whether to adopt the imported chain
+    pub async fn evaluate_and_merge_chain(&mut self, data: Vec<u8>) -> Result<lib_consensus::ChainMergeResult> {
+        let import: BlockchainImport = bincode::deserialize(&data)
             .map_err(|e| anyhow::anyhow!("Failed to deserialize blockchain: {}", e))?;
 
         // Verify all blocks in sequence
@@ -1622,21 +1661,350 @@ impl Blockchain {
             }
         }
 
-        // All blocks verified - replace our state INCLUDING smart contracts
-        info!(" Imported blockchain from peer:");
-        info!("   - {} blocks", import.blocks.len());
-        info!("   - {} token contracts", import.token_contracts.len());
-        info!("   - {} web4 contracts", import.web4_contracts.len());
-        
-        self.blocks = import.blocks;
-        self.utxo_set = import.utxo_set;
-        self.identity_registry = import.identity_registry;
-        self.wallet_registry = import.wallet_registry;
-        self.token_contracts = import.token_contracts;
-        self.web4_contracts = import.web4_contracts;
-        self.contract_blocks = import.contract_blocks;
+        // Create chain summaries for consensus evaluation
+        let local_summary = self.create_local_chain_summary_async().await;
+        let imported_summary = self.create_imported_chain_summary(
+            &import.blocks,
+            &import.identity_registry,
+            &import.utxo_set,
+            &import.token_contracts,
+            &import.web4_contracts
+        );
 
-        Ok(())
+        // Use consensus rules to decide which chain to adopt
+        let decision = lib_consensus::ChainEvaluator::evaluate_chains(&local_summary, &imported_summary);
+
+        match decision {
+            lib_consensus::ChainDecision::KeepLocal => {
+                info!(" Local chain is better - keeping current state");
+                info!("   Local: height={}, work={}, identities={}", 
+                      local_summary.height, local_summary.total_work, local_summary.total_identities);
+                info!("   Imported: height={}, work={}, identities={}", 
+                      imported_summary.height, imported_summary.total_work, imported_summary.total_identities);
+                Ok(lib_consensus::ChainMergeResult::LocalKept)
+            },
+            lib_consensus::ChainDecision::AdoptImported => {
+                info!(" Imported chain is better - adopting new state");
+                info!("   Local: height={}, work={}, identities={}", 
+                      local_summary.height, local_summary.total_work, local_summary.total_identities);
+                info!("   Imported: height={}, work={}, identities={}", 
+                      imported_summary.height, imported_summary.total_work, imported_summary.total_identities);
+                
+                // Replace our state with imported chain
+                self.blocks = import.blocks;
+                self.utxo_set = import.utxo_set;
+                self.identity_registry = import.identity_registry;
+                self.wallet_registry = import.wallet_registry;
+                self.token_contracts = import.token_contracts;
+                self.web4_contracts = import.web4_contracts;
+                self.contract_blocks = import.contract_blocks;
+                
+                info!(" Blockchain state successfully updated from peer");
+                Ok(lib_consensus::ChainMergeResult::ImportedAdopted)
+            },
+            lib_consensus::ChainDecision::Merge => {
+                info!(" Merging compatible chains");
+                info!("   Local: height={}, work={}, identities={}, contracts={}", 
+                      local_summary.height, local_summary.total_work, 
+                      local_summary.total_identities, local_summary.total_contracts);
+                info!("   Imported: height={}, work={}, identities={}, contracts={}", 
+                      imported_summary.height, imported_summary.total_work, 
+                      imported_summary.total_identities, imported_summary.total_contracts);
+                
+                match self.merge_chain_content(&import) {
+                    Ok(merged_items) => {
+                        info!(" Successfully merged chains: {}", merged_items);
+                        Ok(lib_consensus::ChainMergeResult::Merged)
+                    },
+                    Err(e) => {
+                        warn!("Failed to merge chains: {} - keeping local", e);
+                        Ok(lib_consensus::ChainMergeResult::Failed(format!("Merge error: {}", e)))
+                    }
+                }
+            },
+            lib_consensus::ChainDecision::Conflict => {
+                warn!(" Chain conflict detected - different genesis blocks");
+                Ok(lib_consensus::ChainMergeResult::Failed(
+                    "Genesis hash mismatch - chains from different networks".to_string()
+                ))
+            }
+        }
+    }
+
+    /// Create chain summary for local blockchain
+    async fn create_local_chain_summary_async(&self) -> lib_consensus::ChainSummary {
+        let genesis_hash = self.blocks.first()
+            .map(|b| b.header.block_hash.to_string())
+            .unwrap_or_else(|| "none".to_string());
+            
+        let genesis_timestamp = self.blocks.first()
+            .map(|b| b.header.timestamp)
+            .unwrap_or(0);
+            
+        let latest_timestamp = self.blocks.last()
+            .map(|b| b.header.timestamp)
+            .unwrap_or(0);
+
+        // Get consensus data if coordinator is available
+        let (validator_count, total_validator_stake, validator_set_hash) = 
+            if let Some(ref coordinator_arc) = self.consensus_coordinator {
+                let coordinator = coordinator_arc.read().await;
+                match coordinator.get_consensus_status().await {
+                    Ok(status) => {
+                        // Get validator stats for stake information
+                        let validator_infos = coordinator.list_all_validators().await.unwrap_or_default();
+                        let total_stake: u128 = validator_infos.iter().map(|v| v.stake_amount as u128).sum();
+                        
+                        // Calculate validator set hash
+                        let validator_ids: Vec<String> = validator_infos.iter()
+                            .map(|v| v.identity.to_string())
+                            .collect();
+                        let validator_hash = if !validator_ids.is_empty() {
+                            hex::encode(lib_crypto::hash_blake3(format!("{:?}", validator_ids).as_bytes()))
+                        } else {
+                            String::new()
+                        };
+                        
+                        (
+                            status.active_validators as u64,
+                            total_stake,
+                            validator_hash
+                        )
+                    },
+                    Err(_) => (0, 0, String::new())
+                }
+            } else {
+                (0, 0, String::new())
+            };
+
+        // Estimate TPS based on recent blocks
+        let expected_tps = if self.blocks.len() >= 10 {
+            let recent_blocks = &self.blocks[self.blocks.len().saturating_sub(10)..];
+            let total_txs: u64 = recent_blocks.iter().map(|b| b.transactions.len() as u64).sum();
+            let time_span = recent_blocks.last().map(|b| b.header.timestamp)
+                .unwrap_or(0) - recent_blocks.first().map(|b| b.header.timestamp)
+                .unwrap_or(0);
+            if time_span > 0 {
+                total_txs / time_span.max(1)
+            } else {
+                100
+            }
+        } else {
+            100
+        };
+
+        // Network size estimate from identity registry (each identity represents a potential node)
+        let network_size = self.identity_registry.len().max(1) as u64;
+
+        // Bridge node count (for now, based on special identity types in registry)
+        let bridge_node_count = self.identity_registry.values()
+            .filter(|id| id.identity_type.contains("bridge") || id.identity_type.contains("Bridge"))
+            .count() as u64;
+
+        lib_consensus::ChainSummary {
+            height: self.get_height(),
+            total_work: self.calculate_total_work(),
+            total_transactions: self.blocks.iter().map(|b| b.transactions.len() as u64).sum(),
+            total_identities: self.identity_registry.len() as u64,
+            total_utxos: self.utxo_set.len() as u64,
+            total_contracts: (self.token_contracts.len() + self.web4_contracts.len()) as u64,
+            genesis_timestamp,
+            latest_timestamp,
+            genesis_hash,
+            validator_count,
+            total_validator_stake,
+            validator_set_hash,
+            bridge_node_count,
+            expected_tps,
+            network_size,
+        }
+    }
+
+    /// Merge content from compatible blockchain without replacing existing data
+    fn merge_chain_content(&mut self, import: &BlockchainImport) -> Result<String> {
+        let mut merged_items = Vec::new();
+        
+        // Merge identities (add new ones, preserve existing)
+        let mut new_identities = 0;
+        for (did, identity_data) in &import.identity_registry {
+            if !self.identity_registry.contains_key(did) {
+                self.identity_registry.insert(did.clone(), identity_data.clone());
+                new_identities += 1;
+            }
+        }
+        if new_identities > 0 {
+            merged_items.push(format!("{} identities", new_identities));
+        }
+        
+        // Merge wallets (add new ones, preserve existing)
+        let mut new_wallets = 0;
+        for (wallet_id, wallet_data) in &import.wallet_registry {
+            if !self.wallet_registry.contains_key(wallet_id as &str) {
+                self.wallet_registry.insert(wallet_id.clone(), wallet_data.clone());
+                new_wallets += 1;
+            }
+        }
+        if new_wallets > 0 {
+            merged_items.push(format!("{} wallets", new_wallets));
+        }
+        
+        // Merge contracts (add new ones, preserve existing)
+        let mut new_token_contracts = 0;
+        for (contract_id, contract) in &import.token_contracts {
+            if !self.token_contracts.contains_key(contract_id as &[u8; 32]) {
+                self.token_contracts.insert(*contract_id, contract.clone());
+                new_token_contracts += 1;
+            }
+        }
+        if new_token_contracts > 0 {
+            merged_items.push(format!("{} token contracts", new_token_contracts));
+        }
+        
+        let mut new_web4_contracts = 0;
+        for (contract_id, contract) in &import.web4_contracts {
+            if !self.web4_contracts.contains_key(contract_id as &[u8; 32]) {
+                self.web4_contracts.insert(*contract_id, contract.clone());
+                new_web4_contracts += 1;
+            }
+        }
+        if new_web4_contracts > 0 {
+            merged_items.push(format!("{} web4 contracts", new_web4_contracts));
+        }
+        
+        // Merge UTXOs (add new ones, preserve existing)
+        let mut new_utxos = 0;
+        for (utxo_hash, utxo) in &import.utxo_set {
+            if !self.utxo_set.contains_key(utxo_hash as &Hash) {
+                self.utxo_set.insert(*utxo_hash, utxo.clone());
+                new_utxos += 1;
+            }
+        }
+        if new_utxos > 0 {
+            merged_items.push(format!("{} UTXOs", new_utxos));
+        }
+        
+        // Merge contract deployment heights (for tracking)
+        let mut new_contract_blocks = 0;
+        for (contract_id, block_height) in &import.contract_blocks {
+            if !self.contract_blocks.contains_key(contract_id as &[u8; 32]) {
+                self.contract_blocks.insert(*contract_id, *block_height);
+                new_contract_blocks += 1;
+            }
+        }
+        
+        // If chains have different heights, merge missing blocks
+        if import.blocks.len() != self.blocks.len() {
+            // TODO: Implement sophisticated block merging
+            // For now, just report the difference
+            let block_diff = (import.blocks.len() as i64 - self.blocks.len() as i64).abs();
+            merged_items.push(format!("detected {} block difference", block_diff));
+        }
+        
+        if merged_items.is_empty() {
+            Ok("no new content to merge".to_string())
+        } else {
+            Ok(merged_items.join(", "))
+        }
+    }
+
+    /// Create chain summary for imported blockchain
+    fn create_imported_chain_summary(&self, 
+        blocks: &[Block], 
+        identity_registry: &HashMap<String, IdentityTransactionData>,
+        utxo_set: &HashMap<Hash, TransactionOutput>,
+        token_contracts: &HashMap<[u8; 32], crate::contracts::TokenContract>,
+        web4_contracts: &HashMap<[u8; 32], crate::contracts::web4::Web4Contract>
+    ) -> lib_consensus::ChainSummary {
+        let genesis_hash = blocks.first()
+            .map(|b| b.header.block_hash.to_string())
+            .unwrap_or_else(|| "none".to_string());
+            
+        let genesis_timestamp = blocks.first()
+            .map(|b| b.header.timestamp)
+            .unwrap_or(0);
+            
+        let latest_timestamp = blocks.last()
+            .map(|b| b.header.timestamp)
+            .unwrap_or(0);
+
+        // Estimate TPS based on recent blocks in imported chain
+        let expected_tps = if blocks.len() >= 10 {
+            let recent_blocks = &blocks[blocks.len().saturating_sub(10)..];
+            let total_txs: u64 = recent_blocks.iter().map(|b| b.transactions.len() as u64).sum();
+            let time_span = recent_blocks.last().map(|b| b.header.timestamp)
+                .unwrap_or(0) - recent_blocks.first().map(|b| b.header.timestamp)
+                .unwrap_or(0);
+            if time_span > 0 {
+                total_txs / time_span.max(1)
+            } else {
+                100
+            }
+        } else {
+            100
+        };
+
+        // Network size estimate from imported identity registry
+        let network_size = identity_registry.len().max(1) as u64;
+
+        // Bridge node count from imported identity registry
+        let bridge_node_count = identity_registry.values()
+            .filter(|id| id.identity_type.contains("bridge") || id.identity_type.contains("Bridge"))
+            .count() as u64;
+
+        // For imported chains, we don't have access to their consensus coordinator
+        // So we estimate validator info from special identity types
+        let validator_count = identity_registry.values()
+            .filter(|id| id.identity_type.contains("validator") || id.identity_type.contains("Validator"))
+            .count() as u64;
+
+        // Estimate total stake from validator identities (if they have reputation scores)
+        let total_validator_stake: u128 = identity_registry.values()
+            .filter(|id| id.identity_type.contains("validator") || id.identity_type.contains("Validator"))
+            .map(|id| id.registration_fee as u128)
+            .sum();
+
+        // Calculate validator set hash from imported identities
+        let validator_identities: Vec<String> = identity_registry.iter()
+            .filter(|(_, id)| id.identity_type.contains("validator") || id.identity_type.contains("Validator"))
+            .map(|(did, _)| did.clone())
+            .collect();
+        let validator_set_hash = if !validator_identities.is_empty() {
+            hex::encode(lib_crypto::hash_blake3(format!("{:?}", validator_identities).as_bytes()))
+        } else {
+            String::new()
+        };
+
+        lib_consensus::ChainSummary {
+            height: blocks.len().saturating_sub(1) as u64,
+            total_work: self.calculate_imported_total_work(blocks),
+            total_transactions: blocks.iter().map(|b| b.transactions.len() as u64).sum(),
+            total_identities: identity_registry.len() as u64,
+            total_utxos: utxo_set.len() as u64,
+            total_contracts: (token_contracts.len() + web4_contracts.len()) as u64,
+            genesis_timestamp,
+            latest_timestamp,
+            genesis_hash,
+            validator_count,
+            total_validator_stake,
+            validator_set_hash,
+            bridge_node_count,
+            expected_tps,
+            network_size,
+        }
+    }
+
+    /// Calculate total work for imported blocks
+    fn calculate_imported_total_work(&self, blocks: &[Block]) -> u128 {
+        blocks.iter()
+            .map(|block| block.header.difficulty.work())
+            .sum()
+    }
+
+    /// Calculate total work for current blockchain
+    fn calculate_total_work(&self) -> u128 {
+        self.blocks.iter()
+            .map(|block| block.header.difficulty.work())
+            .sum()
     }
 
     // ============================================================================

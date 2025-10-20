@@ -26,7 +26,7 @@ pub mod contracts;
 pub use types::*;
 pub use transaction::*;
 pub use block::*;
-pub use blockchain::*;
+pub use blockchain::{Blockchain, BlockchainImport, BlockchainBroadcastMessage, EconomicsTransaction};
 pub use mempool::*;
 pub use utils::*;
 

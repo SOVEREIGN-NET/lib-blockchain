@@ -14,7 +14,7 @@ pub mod core;
 pub mod functions;
 pub mod types;
 
-pub use core::{Web4Contract};
+pub use core::{Web4Contract, ContentStatistics};
 pub use functions::*;
 pub use types::{
     WebsiteMetadata, ContentRoute, DomainRecord, WebsiteDeploymentData, DomainStatus, 

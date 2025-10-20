@@ -744,12 +744,15 @@ impl<'a> StatefulTransactionValidator<'a> {
 
         //  CRITICAL FIX: Verify sender identity exists on blockchain
         // This is the missing check that was allowing transactions from non-existent identities
+        // Skip only for system transactions and identity registration (new identities don't exist yet)
         if !is_system_transaction && transaction.transaction_type != TransactionType::IdentityRegistration {
             self.validate_sender_identity_exists(transaction)?;
         }
 
-        // Signature validation (always required)
-        stateless_validator.validate_signature(transaction)?;
+        // Signature validation (always required except for system transactions)
+        if !is_system_transaction {
+            stateless_validator.validate_signature(transaction)?;
+        }
 
         // Zero-knowledge proof validation (skip for system transactions)
         if !is_system_transaction {
