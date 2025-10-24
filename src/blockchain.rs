@@ -66,6 +66,10 @@ pub struct Blockchain {
     pub web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
     /// Contract deployment block heights (contract_id -> block_height)
     pub contract_blocks: HashMap<[u8; 32], u64>,
+    /// On-chain validator registry (identity_id -> Validator info)
+    pub validator_registry: HashMap<String, ValidatorInfo>,
+    /// Validator registration block heights (identity_id -> block_height)
+    pub validator_blocks: HashMap<String, u64>,
     /// Economic transaction processor for lib-economy integration
     #[serde(skip)]
     pub economic_processor: Option<EconomicTransactionProcessor>,
@@ -87,6 +91,33 @@ pub struct Blockchain {
     pub broadcast_sender: Option<tokio::sync::mpsc::UnboundedSender<BlockchainBroadcastMessage>>,
 }
 
+/// Validator information stored on-chain
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorInfo {
+    /// Validator identity ID
+    pub identity_id: String,
+    /// Staked amount (in micro-ZHTP)
+    pub stake: u64,
+    /// Storage provided (in bytes)
+    pub storage_provided: u64,
+    /// Public key for consensus (post-quantum)
+    pub consensus_key: Vec<u8>,
+    /// Network address for validator communication
+    pub network_address: String,
+    /// Commission rate (percentage 0-100)
+    pub commission_rate: u8,
+    /// Validator status
+    pub status: String, // "active", "inactive", "jailed", "slashed"
+    /// Registration timestamp
+    pub registered_at: u64,
+    /// Last activity timestamp
+    pub last_activity: u64,
+    /// Total blocks validated
+    pub blocks_validated: u64,
+    /// Slash count
+    pub slash_count: u32,
+}
+
 /// Economics transaction record (simplified for blockchain package)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EconomicsTransaction {
@@ -106,6 +137,7 @@ pub struct BlockchainImport {
     pub utxo_set: HashMap<Hash, TransactionOutput>,
     pub identity_registry: HashMap<String, IdentityTransactionData>,
     pub wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+    pub validator_registry: HashMap<String, ValidatorInfo>,
     pub token_contracts: HashMap<[u8; 32], crate::contracts::TokenContract>,
     pub web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
     pub contract_blocks: HashMap<[u8; 32], u64>,
@@ -132,6 +164,8 @@ impl Blockchain {
             token_contracts: HashMap::new(),
             web4_contracts: HashMap::new(),
             contract_blocks: HashMap::new(),
+            validator_registry: HashMap::new(),
+            validator_blocks: HashMap::new(),
             economic_processor: Some(EconomicTransactionProcessor::new()),
             consensus_coordinator: None,
             storage_manager: None,
@@ -936,6 +970,204 @@ impl Blockchain {
                         wallet_id_str,
                         block.height()
                     );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    // ========================================================================
+    // Validator registration and management
+    // ========================================================================
+
+    /// Register a new validator on the blockchain
+    pub fn register_validator(&mut self, validator_info: ValidatorInfo) -> Result<Hash> {
+        // Check if validator already exists
+        if self.validator_registry.contains_key(&validator_info.identity_id) {
+            return Err(anyhow::anyhow!("Validator {} already exists on blockchain", validator_info.identity_id));
+        }
+
+        // Verify the identity exists
+        if !self.identity_registry.contains_key(&validator_info.identity_id) {
+            return Err(anyhow::anyhow!("Identity {} must be registered before becoming a validator", validator_info.identity_id));
+        }
+
+        // Create validator registration transaction (using Identity type as placeholder until we add Validator type)
+        let validator_tx_data = IdentityTransactionData {
+            did: validator_info.identity_id.clone(),
+            display_name: format!("Validator: {}", validator_info.network_address),
+            public_key: validator_info.consensus_key.clone(),
+            ownership_proof: vec![], // Empty for system validator registration
+            identity_type: "validator".to_string(),
+            did_document_hash: crate::types::hash::blake3_hash(
+                format!("validator:{}:{}", validator_info.identity_id, validator_info.registered_at).as_bytes()
+            ),
+            created_at: validator_info.registered_at,
+            registration_fee: 0, // No fee for validator registration (paid via stake)
+            dao_fee: 0,
+        };
+
+        let registration_tx = Transaction::new_identity_registration(
+            validator_tx_data,
+            vec![], // Fee outputs handled separately
+            Signature {
+                signature: validator_info.consensus_key.clone(),
+                public_key: PublicKey::new(validator_info.consensus_key.clone()),
+                algorithm: SignatureAlgorithm::Dilithium2,
+                timestamp: validator_info.registered_at,
+            },
+            format!("Validator registration for {} with stake {}", validator_info.identity_id, validator_info.stake).into_bytes(),
+        );
+
+        // Add to pending transactions for inclusion in next block
+        self.add_pending_transaction(registration_tx.clone())?;
+
+        // Store in validator registry immediately for queries
+        self.validator_registry.insert(validator_info.identity_id.clone(), validator_info.clone());
+        self.validator_blocks.insert(validator_info.identity_id.clone(), self.height + 1);
+
+        info!("✅ Validator {} registered with {} ZHTP stake and {} bytes storage", 
+              validator_info.identity_id, validator_info.stake, validator_info.storage_provided);
+
+        Ok(registration_tx.hash())
+    }
+
+    /// Get validator by identity ID
+    pub fn get_validator(&self, identity_id: &str) -> Option<&ValidatorInfo> {
+        self.validator_registry.get(identity_id)
+    }
+
+    /// Check if validator exists
+    pub fn validator_exists(&self, identity_id: &str) -> bool {
+        self.validator_registry.contains_key(identity_id)
+    }
+
+    /// Get all validators on the blockchain
+    pub fn list_all_validators(&self) -> Vec<&ValidatorInfo> {
+        self.validator_registry.values().collect()
+    }
+
+    /// Get all active validators
+    pub fn get_active_validators(&self) -> Vec<&ValidatorInfo> {
+        self.validator_registry.values()
+            .filter(|v| v.status == "active")
+            .collect()
+    }
+
+    /// Get all validators as HashMap
+    pub fn get_all_validators(&self) -> &HashMap<String, ValidatorInfo> {
+        &self.validator_registry
+    }
+
+    /// Update validator information
+    pub fn update_validator(&mut self, identity_id: &str, updated_info: ValidatorInfo) -> Result<Hash> {
+        // Check if validator exists
+        if !self.validator_registry.contains_key(identity_id) {
+            return Err(anyhow::anyhow!("Validator {} not found on blockchain", identity_id));
+        }
+
+        // Create update transaction
+        let validator_tx_data = IdentityTransactionData {
+            did: updated_info.identity_id.clone(),
+            display_name: format!("Validator Update: {}", updated_info.network_address),
+            public_key: updated_info.consensus_key.clone(),
+            ownership_proof: vec![],
+            identity_type: "validator".to_string(),
+            did_document_hash: crate::types::hash::blake3_hash(
+                format!("validator_update:{}:{}", updated_info.identity_id, updated_info.last_activity).as_bytes()
+            ),
+            created_at: updated_info.last_activity,
+            registration_fee: 0,
+            dao_fee: 0,
+        };
+
+        let update_tx = Transaction::new_identity_update(
+            validator_tx_data,
+            vec![],
+            vec![],
+            100, // Update fee
+            Signature {
+                signature: updated_info.consensus_key.clone(),
+                public_key: PublicKey::new(updated_info.consensus_key.clone()),
+                algorithm: SignatureAlgorithm::Dilithium2,
+                timestamp: updated_info.last_activity,
+            },
+            format!("Validator update for {}", identity_id).into_bytes(),
+        );
+
+        // Add to pending transactions
+        self.add_pending_transaction(update_tx.clone())?;
+
+        // Update registry
+        self.validator_registry.insert(identity_id.to_string(), updated_info);
+
+        Ok(update_tx.hash())
+    }
+
+    /// Unregister a validator
+    pub fn unregister_validator(&mut self, identity_id: &str) -> Result<Hash> {
+        // Check if validator exists
+        if !self.validator_registry.contains_key(identity_id) {
+            return Err(anyhow::anyhow!("Validator {} not found on blockchain", identity_id));
+        }
+
+        // Get validator info
+        let mut validator_info = self.validator_registry.get(identity_id).unwrap().clone();
+        validator_info.status = "inactive".to_string();
+
+        // Create unregistration transaction
+        let unregister_tx = Transaction::new_identity_revocation(
+            identity_id.to_string(),
+            vec![],
+            100,
+            Signature {
+                signature: validator_info.consensus_key.clone(),
+                public_key: PublicKey::new(validator_info.consensus_key.clone()),
+                algorithm: SignatureAlgorithm::Dilithium2,
+                timestamp: validator_info.last_activity,
+            },
+            format!("Validator unregistration for {}", identity_id).into_bytes(),
+        );
+
+        // Add to pending transactions
+        self.add_pending_transaction(unregister_tx.clone())?;
+
+        // Update status in registry
+        self.validator_registry.insert(identity_id.to_string(), validator_info);
+
+        info!("Validator {} unregistered", identity_id);
+
+        Ok(unregister_tx.hash())
+    }
+
+    /// Get validator block confirmation count
+    pub fn get_validator_confirmations(&self, identity_id: &str) -> Option<u64> {
+        self.validator_blocks.get(identity_id).map(|block_height| {
+            if self.height >= *block_height {
+                self.height - block_height + 1
+            } else {
+                0
+            }
+        })
+    }
+
+    /// Process validator transactions in a block
+    pub fn process_validator_transactions(&mut self, block: &Block) -> Result<()> {
+        for transaction in &block.transactions {
+            if let Some(ref identity_data) = transaction.identity_data {
+                if identity_data.identity_type == "validator" {
+                    // Extract validator info from identity transaction
+                    // This is a simplified version - in production, you'd have a dedicated ValidatorTransactionData
+                    if let Some(validator_info) = self.validator_registry.get(&identity_data.did) {
+                        let mut updated_info = validator_info.clone();
+                        updated_info.last_activity = identity_data.created_at;
+                        updated_info.blocks_validated += 1;
+                        
+                        self.validator_registry.insert(
+                            identity_data.did.clone(),
+                            updated_info
+                        );
+                    }
                 }
             }
         }

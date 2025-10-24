@@ -12,6 +12,8 @@ use crate::integration::zk_integration::ZkTransactionProof;
 pub struct Transaction {
     /// Transaction version
     pub version: u32,
+    /// Network chain identifier (0x01=mainnet, 0x02=testnet, 0x03=development)
+    pub chain_id: u8,
     /// Type of transaction (transfer, identity, contract)
     pub transaction_type: TransactionType,
     /// Transaction inputs (UTXOs being spent)
@@ -30,6 +32,9 @@ pub struct Transaction {
     /// Wallet-specific data (only for wallet transactions)
     /// This data is processed by lib-identity package
     pub wallet_data: Option<WalletTransactionData>,
+    /// Validator-specific data (only for validator transactions)
+    /// This data is processed by lib-consensus package
+    pub validator_data: Option<ValidatorTransactionData>,
 }
 
 /// Transaction input referencing a previous output
@@ -106,6 +111,38 @@ pub struct WalletTransactionData {
     pub initial_balance: u64,
 }
 
+/// Validator registration transaction data (processed by lib-consensus package)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorTransactionData {
+    /// Identity ID of the validator (must be pre-registered)
+    pub identity_id: String,
+    /// Staked amount in micro-ZHTP
+    pub stake: u64,
+    /// Storage provided in bytes
+    pub storage_provided: u64,
+    /// Post-quantum consensus public key
+    pub consensus_key: Vec<u8>,
+    /// Network address for validator communication (host:port)
+    pub network_address: String,
+    /// Commission rate percentage (0-100)
+    pub commission_rate: u8,
+    /// Validator operation type
+    pub operation: ValidatorOperation,
+    /// Timestamp of registration/update
+    pub timestamp: u64,
+}
+
+/// Validator operation types
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ValidatorOperation {
+    /// Register as a new validator
+    Register,
+    /// Update validator information
+    Update,
+    /// Unregister and exit from consensus
+    Unregister,
+}
+
 impl Transaction {
     /// Create a new standard transfer transaction
     pub fn new(
@@ -117,6 +154,7 @@ impl Transaction {
     ) -> Self {
         Transaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: TransactionType::Transfer,
             inputs,
             outputs,
@@ -125,6 +163,7 @@ impl Transaction {
             memo,
             identity_data: None,
             wallet_data: None,
+            validator_data: None,
         }
     }
 
@@ -137,6 +176,7 @@ impl Transaction {
     ) -> Self {
         Transaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: TransactionType::IdentityRegistration,
             inputs: Vec::new(), // Identity registration doesn't have inputs
             outputs,
@@ -145,6 +185,7 @@ impl Transaction {
             memo,
             identity_data: Some(identity_data),
             wallet_data: None,
+            validator_data: None,
         }
     }
 
@@ -159,6 +200,7 @@ impl Transaction {
     ) -> Self {
         Transaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: TransactionType::IdentityUpdate,
             inputs,
             outputs,
@@ -167,6 +209,7 @@ impl Transaction {
             memo,
             identity_data: Some(identity_data),
             wallet_data: None,
+            validator_data: None,
         }
     }
 
@@ -195,6 +238,7 @@ impl Transaction {
 
         Transaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: TransactionType::IdentityRevocation,
             inputs,
             outputs: Vec::new(),
@@ -203,6 +247,7 @@ impl Transaction {
             memo,
             identity_data: Some(revocation_data),
             wallet_data: None,
+            validator_data: None,
         }
     }
 
@@ -215,6 +260,7 @@ impl Transaction {
     ) -> Self {
         Transaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: TransactionType::WalletRegistration,
             inputs: Vec::new(), // Wallet registration doesn't need inputs
             outputs,
@@ -223,6 +269,77 @@ impl Transaction {
             memo,
             identity_data: None,
             wallet_data: Some(wallet_data),
+            validator_data: None,
+        }
+    }
+
+    /// Create a new validator registration transaction
+    pub fn new_validator_registration(
+        validator_data: ValidatorTransactionData,
+        outputs: Vec<TransactionOutput>, // For stake locking
+        signature: Signature,
+        memo: Vec<u8>,
+    ) -> Self {
+        Transaction {
+            version: 1,
+            chain_id: 0x03, // Default to development network
+            transaction_type: TransactionType::ValidatorRegistration,
+            inputs: Vec::new(), // Validator registration via staking
+            outputs,
+            fee: 0, // Fee paid via stake
+            signature,
+            memo,
+            identity_data: None,
+            wallet_data: None,
+            validator_data: Some(validator_data),
+        }
+    }
+
+    /// Create a new validator update transaction
+    pub fn new_validator_update(
+        validator_data: ValidatorTransactionData,
+        inputs: Vec<TransactionInput>, // Authorization
+        outputs: Vec<TransactionOutput>,
+        fee: u64,
+        signature: Signature,
+        memo: Vec<u8>,
+    ) -> Self {
+        Transaction {
+            version: 1,
+            chain_id: 0x03, // Default to development network
+            transaction_type: TransactionType::ValidatorUpdate,
+            inputs,
+            outputs,
+            fee,
+            signature,
+            memo,
+            identity_data: None,
+            wallet_data: None,
+            validator_data: Some(validator_data),
+        }
+    }
+
+    /// Create a new validator unregister transaction
+    pub fn new_validator_unregister(
+        validator_data: ValidatorTransactionData,
+        inputs: Vec<TransactionInput>, // Authorization
+        outputs: Vec<TransactionOutput>, // Stake return
+        fee: u64,
+        signature: Signature,
+        memo: Vec<u8>,
+    ) -> Self {
+        Transaction {
+            version: 1,
+            chain_id: 0x03, // Default to development network
+            transaction_type: TransactionType::ValidatorUnregister,
+            inputs,
+            outputs,
+            fee,
+            signature,
+            memo,
+            identity_data: None,
+            wallet_data: None,
+            validator_data: Some(validator_data),
         }
     }
 

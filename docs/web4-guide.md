@@ -523,7 +523,7 @@ use lib_blockchain::web4::{CdnProvider, CdnConfig};
 async fn setup_web4_cdn() -> Result<()> {
     let cdn_config = CdnConfig {
         providers: vec![
-            CdnProvider::Ipfs,
+            CdnProvider::,
             CdnProvider::Storj,
             CdnProvider::Arweave,
         ],

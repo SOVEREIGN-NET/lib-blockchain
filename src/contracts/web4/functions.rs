@@ -105,10 +105,10 @@ pub fn validate_deployment_data(data: &WebsiteDeploymentData) -> Result<(), Web4
             ));
         }
         
-        // Basic validation for DHT/IPFS hashes
+        // Basic validation for DHT/ hashes
         let is_valid = route.content_hash.starts_with("Qm") ||
                        route.content_hash.starts_with("dht:") ||
-                       route.content_hash.starts_with("ipfs:");
+                       route.content_hash.starts_with(":");
         
         if !is_valid {
             return Err(Web4Error::InvalidContentHash(

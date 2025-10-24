@@ -30,6 +30,12 @@ pub enum TransactionType {
     UbiDistribution,
     /// Wallet registration/creation on blockchain
     WalletRegistration,
+    /// Validator registration for consensus participation
+    ValidatorRegistration,
+    /// Validator information update
+    ValidatorUpdate,
+    /// Validator unregistration/exit from consensus
+    ValidatorUnregister,
 }
 
 impl TransactionType {
@@ -55,6 +61,15 @@ impl TransactionType {
         matches!(self, TransactionType::Transfer)
     }
 
+    /// Check if this transaction type relates to validator management
+    pub fn is_validator_transaction(&self) -> bool {
+        matches!(self,
+            TransactionType::ValidatorRegistration |
+            TransactionType::ValidatorUpdate |
+            TransactionType::ValidatorUnregister
+        )
+    }
+
     /// Get a human-readable description of the transaction type
     pub fn description(&self) -> &'static str {
         match self {
@@ -69,6 +84,9 @@ impl TransactionType {
             TransactionType::ContentUpload => "Content upload transaction",
             TransactionType::UbiDistribution => "Universal Basic Income distribution",
             TransactionType::WalletRegistration => "Wallet registration/creation",
+            TransactionType::ValidatorRegistration => "Validator registration for consensus",
+            TransactionType::ValidatorUpdate => "Validator information update",
+            TransactionType::ValidatorUnregister => "Validator unregistration/exit",
         }
     }
 
@@ -86,6 +104,9 @@ impl TransactionType {
             TransactionType::ContentUpload => "content_upload",
             TransactionType::UbiDistribution => "ubi_distribution",
             TransactionType::WalletRegistration => "wallet_registration",
+            TransactionType::ValidatorRegistration => "validator_registration",
+            TransactionType::ValidatorUpdate => "validator_update",
+            TransactionType::ValidatorUnregister => "validator_unregister",
         }
     }
 
@@ -103,6 +124,9 @@ impl TransactionType {
             "content_upload" => Some(TransactionType::ContentUpload),
             "ubi_distribution" => Some(TransactionType::UbiDistribution),
             "wallet_registration" => Some(TransactionType::WalletRegistration),
+            "validator_registration" => Some(TransactionType::ValidatorRegistration),
+            "validator_update" => Some(TransactionType::ValidatorUpdate),
+            "validator_unregister" => Some(TransactionType::ValidatorUnregister),
             _ => None,
         }
     }

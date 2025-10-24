@@ -29,6 +29,7 @@ pub enum ValidationError {
     InvalidPublicKey,
     InvalidSeedCommitment,
     InvalidWalletType,
+    InvalidValidatorData,
 }
 
 impl std::fmt::Display for ValidationError {
@@ -53,6 +54,7 @@ impl std::fmt::Display for ValidationError {
             ValidationError::InvalidPublicKey => write!(f, "Invalid public key"),
             ValidationError::InvalidSeedCommitment => write!(f, "Invalid seed commitment"),
             ValidationError::InvalidWalletType => write!(f, "Invalid wallet type"),
+            ValidationError::InvalidValidatorData => write!(f, "Invalid or missing validator data"),
         }
     }
 }
@@ -119,6 +121,24 @@ impl TransactionValidator {
                 // Wallet registration transactions - validate wallet data and ownership
                 self.validate_wallet_registration_transaction(transaction)?;
             },
+            TransactionType::ValidatorRegistration => {
+                // Validator registration - validate validator data exists
+                if transaction.validator_data.is_none() {
+                    return Err(ValidationError::InvalidValidatorData);
+                }
+            },
+            TransactionType::ValidatorUpdate => {
+                // Validator update - validate validator data exists
+                if transaction.validator_data.is_none() {
+                    return Err(ValidationError::InvalidValidatorData);
+                }
+            },
+            TransactionType::ValidatorUnregister => {
+                // Validator unregister - validate validator data exists
+                if transaction.validator_data.is_none() {
+                    return Err(ValidationError::InvalidValidatorData);
+                }
+            },
         }
 
         // Signature validation (always required)
@@ -170,6 +190,24 @@ impl TransactionValidator {
             TransactionType::WalletRegistration => {
                 // Wallet registration transactions - validate wallet data and ownership
                 self.validate_wallet_registration_transaction(transaction)?;
+            },
+            TransactionType::ValidatorRegistration => {
+                // Validator registration - validate validator data exists
+                if transaction.validator_data.is_none() {
+                    return Err(ValidationError::InvalidValidatorData);
+                }
+            },
+            TransactionType::ValidatorUpdate => {
+                // Validator update - validate validator data exists
+                if transaction.validator_data.is_none() {
+                    return Err(ValidationError::InvalidValidatorData);
+                }
+            },
+            TransactionType::ValidatorUnregister => {
+                // Validator unregister - validate validator data exists
+                if transaction.validator_data.is_none() {
+                    return Err(ValidationError::InvalidValidatorData);
+                }
             },
         }
 
@@ -625,8 +663,8 @@ impl TransactionValidator {
             return Err(ValidationError::InvalidIdentityData);
         }
 
-        // Check ownership proof
-        if identity_data.ownership_proof.is_empty() {
+        // Check ownership proof (allow empty for system/genesis transactions)
+        if !is_system_transaction && identity_data.ownership_proof.is_empty() {
             return Err(ValidationError::InvalidIdentityData);
         }
 
@@ -738,6 +776,12 @@ impl<'a> StatefulTransactionValidator<'a> {
             },
             TransactionType::WalletRegistration => {
                 // Wallet registration transactions - validate wallet data and ownership
+                stateless_validator.validate_transaction(transaction)?;
+            },
+            TransactionType::ValidatorRegistration |
+            TransactionType::ValidatorUpdate |
+            TransactionType::ValidatorUnregister => {
+                // Validator transactions - validate with stateless validator
                 stateless_validator.validate_transaction(transaction)?;
             },
         }
@@ -862,6 +906,12 @@ pub mod utils {
             TransactionType::WalletRegistration => {
                 // Wallet registration should have wallet_data
                 transaction.wallet_data.is_some()
+            }
+            TransactionType::ValidatorRegistration |
+            TransactionType::ValidatorUpdate |
+            TransactionType::ValidatorUnregister => {
+                // Validator transactions should have validator_data
+                transaction.validator_data.is_some()
             }
         }
     }

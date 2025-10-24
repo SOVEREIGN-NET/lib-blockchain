@@ -244,6 +244,7 @@ impl ContractTransactionBuilder {
         // Sign transaction (simplified - would need proper signing logic)
         let temp_tx = Transaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: TransactionType::ContractExecution,
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
@@ -257,6 +258,7 @@ impl ContractTransactionBuilder {
             memo: memo.clone(),
             identity_data: None,
             wallet_data: None,
+            validator_data: None,
         };
 
         let tx_hash = temp_tx.signing_hash();
@@ -264,6 +266,7 @@ impl ContractTransactionBuilder {
 
         let tx = Transaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: TransactionType::ContractExecution,
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
@@ -272,6 +275,7 @@ impl ContractTransactionBuilder {
             memo,
             identity_data: None,
             wallet_data: None,
+            validator_data: None,
         };
 
         Ok(tx)

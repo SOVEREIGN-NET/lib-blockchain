@@ -13,7 +13,7 @@ pub struct SharedFile {
     pub description: String,
     /// File owner
     pub owner: PublicKey,
-    /// IPFS hash or content hash
+    ///  hash or content hash
     pub content_hash: [u8; 32],
     /// File size in bytes
     pub file_size: u64,

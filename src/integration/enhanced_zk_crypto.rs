@@ -416,6 +416,7 @@ impl EnhancedTransactionCreator {
         // Create unsigned transaction
         let mut transaction = Transaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: crate::types::TransactionType::Transfer,
             inputs: vec![input],
             outputs: vec![output],
@@ -432,6 +433,7 @@ impl EnhancedTransactionCreator {
             memo: Vec::new(),
             identity_data: None,
             wallet_data: None,
+            validator_data: None,
         };
         
         // Sign transaction using lib-crypto

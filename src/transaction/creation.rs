@@ -146,6 +146,7 @@ impl TransactionBuilder {
         // Create unsigned transaction
         let mut transaction = Transaction {
             version: self.version,
+            chain_id: 0x03, // Default to development network
             transaction_type: self.transaction_type,
             inputs: inputs_with_proofs,
             outputs: self.outputs,
@@ -157,6 +158,7 @@ impl TransactionBuilder {
                 timestamp: 0,
             }, // Will be set below
             memo: self.memo,
+            validator_data: None,
             identity_data: self.identity_data,
             wallet_data: self.wallet_data,
         };
@@ -409,6 +411,12 @@ pub mod utils {
             }
             TransactionType::WalletRegistration => {
                 // Wallet registration transactions should have wallet data
+                // Validation will be handled during transaction validation
+            }
+            TransactionType::ValidatorRegistration |
+            TransactionType::ValidatorUpdate |
+            TransactionType::ValidatorUnregister => {
+                // Validator transactions - no specific validation needed here
                 // Validation will be handled during transaction validation
             }
         }

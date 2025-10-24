@@ -1179,6 +1179,7 @@ impl BlockchainConsensusCoordinator {
 
                 let reward_tx = Transaction {
                     version: 1,
+                    chain_id: 0x03, // Default to development network
                     inputs: vec![], // System transaction, no inputs
                     outputs: vec![output],
                     fee: 0, // No fee for reward transactions
@@ -1186,6 +1187,7 @@ impl BlockchainConsensusCoordinator {
                     signature,
                     transaction_type: TransactionType::Transfer,
                     identity_data: None,
+                    validator_data: None,
                     wallet_data: None,
                 };
 
@@ -1349,6 +1351,7 @@ pub async fn initialize_consensus_integration(
         byzantine_threshold: 1.0 / 3.0,
         slash_double_sign: 5,
         slash_liveness: 1,
+        development_mode: false, // Production mode by default
     };
 
     let coordinator = BlockchainConsensusCoordinator::new(

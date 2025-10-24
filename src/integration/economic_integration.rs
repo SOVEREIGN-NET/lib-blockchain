@@ -420,6 +420,7 @@ impl EconomicTransactionProcessor {
         // Create blockchain transaction
         Ok(BlockchainTransaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: blockchain_tx_type,
             inputs,
             outputs,
@@ -427,6 +428,7 @@ impl EconomicTransactionProcessor {
             signature,
             memo,
             identity_data,
+            validator_data: None,
             wallet_data: None,
         })
     }
@@ -449,6 +451,7 @@ impl EconomicTransactionProcessor {
 
         let temp_transaction = BlockchainTransaction {
             version: 1,
+            chain_id: 0x03, // Default to development network
             transaction_type: BlockchainTransactionType::Transfer,
             inputs: inputs.to_vec(),
             outputs: outputs.to_vec(),
@@ -456,6 +459,7 @@ impl EconomicTransactionProcessor {
             signature: temp_signature,
             memo: format!("Economic signature for {}", hex::encode(economy_tx.tx_id)).into_bytes(),
             identity_data: None,
+            validator_data: None,
             wallet_data: None,
         };
 

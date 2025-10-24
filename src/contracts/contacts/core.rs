@@ -13,7 +13,7 @@ pub struct ContactEntry {
     pub display_name: String,
     /// Contact's public key
     pub public_key: PublicKey,
-    /// Optional avatar hash (IPFS hash)
+    /// Optional avatar hash ( hash)
     pub avatar_hash: Option<String>,
     /// Status message
     pub status_message: String,

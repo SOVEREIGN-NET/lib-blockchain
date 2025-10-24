@@ -506,12 +506,12 @@ impl Web4Contract {
             && !domain.ends_with('-')
     }
     
-    /// Validate content hash format (IPFS/DHT hash)
+    /// Validate content hash format (/DHT hash)
     fn is_valid_content_hash(hash: &str) -> bool {
-        // Basic validation for IPFS/DHT content hashes
+        // Basic validation for /DHT content hashes
         (hash.starts_with("Qm") && hash.len() == 46) || 
         (hash.starts_with("dht:") && hash.len() > 10) ||
-        (hash.starts_with("ipfs:") && hash.len() > 10)
+        (hash.starts_with(":") && hash.len() > 10)
     }
     
     /// Get detailed metadata for a specific content route
@@ -908,7 +908,7 @@ mod tests {
     fn test_content_hash_validation() {
         assert!(Web4Contract::is_valid_content_hash("QmXoYpo9YdJkX8kGd7YtT6yC2FJLzMQvE5rE7Nvh4eJnX5"));
         assert!(Web4Contract::is_valid_content_hash("dht:content_hash_123"));
-        assert!(Web4Contract::is_valid_content_hash("ipfs:QmXoYpo9YdJkX8kGd7YtT6yC2FJL"));
+        assert!(Web4Contract::is_valid_content_hash(":QmXoYpo9YdJkX8kGd7YtT6yC2FJL"));
         assert!(!Web4Contract::is_valid_content_hash("invalid_hash"));
         assert!(!Web4Contract::is_valid_content_hash("Qm123")); // Too short
     }
