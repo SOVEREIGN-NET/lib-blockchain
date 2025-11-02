@@ -1847,6 +1847,7 @@ impl Blockchain {
             utxo_set: HashMap<Hash, TransactionOutput>,
             identity_registry: HashMap<String, IdentityTransactionData>,
             wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+            validator_registry: HashMap<String, ValidatorInfo>,
             token_contracts: HashMap<[u8; 32], crate::contracts::TokenContract>,
             web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
             contract_blocks: HashMap<[u8; 32], u64>,
@@ -1857,13 +1858,14 @@ impl Blockchain {
             utxo_set: self.utxo_set.clone(),
             identity_registry: self.identity_registry.clone(),
             wallet_registry: self.wallet_registry.clone(),
+            validator_registry: self.validator_registry.clone(),
             token_contracts: self.token_contracts.clone(),
             web4_contracts: self.web4_contracts.clone(),
             contract_blocks: self.contract_blocks.clone(),
         };
 
-        info!(" Exporting blockchain: {} blocks, {} token contracts, {} web4 contracts", 
-            self.blocks.len(), self.token_contracts.len(), self.web4_contracts.len());
+        info!(" Exporting blockchain: {} blocks, {} validators, {} token contracts, {} web4 contracts", 
+            self.blocks.len(), self.validator_registry.len(), self.token_contracts.len(), self.web4_contracts.len());
 
         bincode::serialize(&export)
             .map_err(|e| anyhow::anyhow!("Failed to serialize blockchain: {}", e))
@@ -1914,6 +1916,25 @@ impl Blockchain {
                 info!("   Imported: height={}, work={}, identities={}", 
                       imported_summary.height, imported_summary.total_work, imported_summary.total_identities);
                 Ok(lib_consensus::ChainMergeResult::LocalKept)
+            },
+            lib_consensus::ChainDecision::MergeContentOnly => {
+                info!(" Local chain is longer - merging unique content from shorter chain");
+                info!("   Local: height={}, work={}, identities={}", 
+                      local_summary.height, local_summary.total_work, local_summary.total_identities);
+                info!("   Imported: height={}, work={}, identities={}", 
+                      imported_summary.height, imported_summary.total_work, imported_summary.total_identities);
+                
+                // Extract unique content from imported chain (shorter) into local (longer)
+                match self.merge_unique_content(&import) {
+                    Ok(merged_items) => {
+                        info!(" Successfully merged unique content: {}", merged_items);
+                        Ok(lib_consensus::ChainMergeResult::ContentMerged)
+                    },
+                    Err(e) => {
+                        warn!("Failed to merge content: {} - keeping local only", e);
+                        Ok(lib_consensus::ChainMergeResult::Failed(format!("Content merge error: {}", e)))
+                    }
+                }
             },
             lib_consensus::ChainDecision::AdoptImported => {
                 info!(" Imported chain is better - adopting new state");
@@ -2135,6 +2156,94 @@ impl Blockchain {
         if merged_items.is_empty() {
             Ok("no new content to merge".to_string())
         } else {
+            Ok(merged_items.join(", "))
+        }
+    }
+
+    /// Merge unique content from shorter chain into longer chain
+    /// This prevents data loss when local chain is longer but imported has unique identities/wallets/contracts
+    fn merge_unique_content(&mut self, import: &BlockchainImport) -> Result<String> {
+        let mut merged_items = Vec::new();
+        
+        info!("Extracting unique content from shorter chain (height {}) into longer chain (height {})",
+              import.blocks.len(), self.blocks.len());
+        
+        // Merge identities (add new ones that don't exist in local chain)
+        let mut new_identities = 0;
+        for (did, identity_data) in &import.identity_registry {
+            if !self.identity_registry.contains_key(did) {
+                info!("  Adding unique identity: {}", did);
+                self.identity_registry.insert(did.clone(), identity_data.clone());
+                new_identities += 1;
+            }
+        }
+        if new_identities > 0 {
+            merged_items.push(format!("{} identities", new_identities));
+        }
+        
+        // Merge wallets (add new ones that don't exist in local chain)
+        let mut new_wallets = 0;
+        for (wallet_id, wallet_data) in &import.wallet_registry {
+            if !self.wallet_registry.contains_key(wallet_id as &str) {
+                info!("  Adding unique wallet: {}", wallet_id);
+                self.wallet_registry.insert(wallet_id.clone(), wallet_data.clone());
+                new_wallets += 1;
+            }
+        }
+        if new_wallets > 0 {
+            merged_items.push(format!("{} wallets", new_wallets));
+        }
+        
+        // Merge contracts (add new ones that don't exist in local chain)
+        let mut new_token_contracts = 0;
+        for (contract_id, contract) in &import.token_contracts {
+            if !self.token_contracts.contains_key(contract_id as &[u8; 32]) {
+                info!("  Adding unique token contract: {:?}", hex::encode(contract_id));
+                self.token_contracts.insert(*contract_id, contract.clone());
+                new_token_contracts += 1;
+            }
+        }
+        if new_token_contracts > 0 {
+            merged_items.push(format!("{} token contracts", new_token_contracts));
+        }
+        
+        let mut new_web4_contracts = 0;
+        for (contract_id, contract) in &import.web4_contracts {
+            if !self.web4_contracts.contains_key(contract_id as &[u8; 32]) {
+                info!("  Adding unique web4 contract: {:?}", hex::encode(contract_id));
+                self.web4_contracts.insert(*contract_id, contract.clone());
+                new_web4_contracts += 1;
+            }
+        }
+        if new_web4_contracts > 0 {
+            merged_items.push(format!("{} web4 contracts", new_web4_contracts));
+        }
+        
+        // Merge UTXOs (add new ones that aren't spent in local chain)
+        let mut new_utxos = 0;
+        for (utxo_hash, utxo) in &import.utxo_set {
+            if !self.utxo_set.contains_key(utxo_hash as &Hash) {
+                self.utxo_set.insert(*utxo_hash, utxo.clone());
+                new_utxos += 1;
+            }
+        }
+        if new_utxos > 0 {
+            merged_items.push(format!("{} UTXOs", new_utxos));
+        }
+        
+        // Merge contract deployment records
+        let mut new_contract_blocks = 0;
+        for (contract_id, block_height) in &import.contract_blocks {
+            if !self.contract_blocks.contains_key(contract_id as &[u8; 32]) {
+                self.contract_blocks.insert(*contract_id, *block_height);
+                new_contract_blocks += 1;
+            }
+        }
+        
+        if merged_items.is_empty() {
+            Ok("no unique content found in shorter chain".to_string())
+        } else {
+            info!("Successfully merged unique content from shorter chain");
             Ok(merged_items.join(", "))
         }
     }
