@@ -104,7 +104,17 @@ impl Block {
     /// Verify the Merkle root of transactions
     pub fn verify_merkle_root(&self) -> bool {
         let calculated_root = crate::transaction::hashing::calculate_transaction_merkle_root(&self.transactions);
-        calculated_root == self.header.merkle_root
+        let matches = calculated_root == self.header.merkle_root;
+        if !matches {
+            tracing::warn!(
+                "Merkle root mismatch at height {}: calculated={}, stored={}transactions_count={}",
+                self.height(),
+                hex::encode(calculated_root.as_bytes()),
+                hex::encode(self.header.merkle_root.as_bytes()),
+                self.transactions.len()
+            );
+        }
+        matches
     }
 
     /// Verify the block meets the difficulty target
