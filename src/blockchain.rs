@@ -1956,16 +1956,18 @@ impl Blockchain {
                       imported_summary.height, imported_summary.total_work, imported_summary.total_identities);
                 
                 // Check if this is a genesis replacement (different genesis blocks)
+                // IMPORTANT: Use merkle_root comparison to match ChainEvaluator logic
+                // Different validators in genesis = different merkle roots = different networks
                 let is_genesis_replacement = if !self.blocks.is_empty() && !import.blocks.is_empty() {
-                    self.blocks[0].header.block_hash != import.blocks[0].header.block_hash
+                    self.blocks[0].header.merkle_root != import.blocks[0].header.merkle_root
                 } else {
                     false
                 };
                 
                 if is_genesis_replacement {
                     info!("🔀 Genesis mismatch detected - performing full consolidation merge");
-                    info!("   Old genesis: {}", hex::encode(self.blocks[0].header.block_hash.as_bytes()));
-                    info!("   New genesis: {}", hex::encode(import.blocks[0].header.block_hash.as_bytes()));
+                    info!("   Old genesis merkle: {}", hex::encode(self.blocks[0].header.merkle_root.as_bytes()));
+                    info!("   New genesis merkle: {}", hex::encode(import.blocks[0].header.merkle_root.as_bytes()));
                     
                     // Perform intelligent merge: adopt imported chain but preserve unique local data
                     match self.merge_with_genesis_mismatch(&import) {
