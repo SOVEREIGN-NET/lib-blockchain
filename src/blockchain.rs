@@ -2153,10 +2153,33 @@ impl Blockchain {
         
         // If chains have different heights, merge missing blocks
         if import.blocks.len() != self.blocks.len() {
-            // TODO: Implement sophisticated block merging
-            // For now, just report the difference
-            let block_diff = (import.blocks.len() as i64 - self.blocks.len() as i64).abs();
-            merged_items.push(format!("detected {} block difference", block_diff));
+            if import.blocks.len() > self.blocks.len() {
+                // Imported chain is longer - add missing blocks
+                let missing_blocks = &import.blocks[self.blocks.len()..];
+                let mut added_blocks = 0;
+                
+                for block in missing_blocks {
+                    // Verify block before adding
+                    let prev_block = self.blocks.last();
+                    if self.verify_block(block, prev_block)? {
+                        self.blocks.push(block.clone());
+                        self.height = block.height();
+                        added_blocks += 1;
+                        info!("  Added missing block at height {}", block.height());
+                    } else {
+                        warn!("  Failed to verify imported block at height {}, stopping block merge", block.height());
+                        break;
+                    }
+                }
+                
+                if added_blocks > 0 {
+                    merged_items.push(format!("{} blocks", added_blocks));
+                }
+            } else {
+                // Local chain is longer - just report the difference
+                let block_diff = self.blocks.len() - import.blocks.len();
+                info!("  Local chain is {} blocks ahead, not adopting shorter chain", block_diff);
+            }
         }
         
         if merged_items.is_empty() {
