@@ -1943,23 +1943,77 @@ impl Blockchain {
                 }
             },
             lib_consensus::ChainDecision::AdoptImported => {
-                info!(" Imported chain is better - adopting new state");
+                info!("🔄 Imported chain is better - performing intelligent merge");
                 info!("   Local: height={}, work={}, identities={}", 
                       local_summary.height, local_summary.total_work, local_summary.total_identities);
                 info!("   Imported: height={}, work={}, identities={}", 
                       imported_summary.height, imported_summary.total_work, imported_summary.total_identities);
                 
-                // Replace our state with imported chain
-                self.blocks = import.blocks;
-                self.utxo_set = import.utxo_set;
-                self.identity_registry = import.identity_registry;
-                self.wallet_registry = import.wallet_registry;
-                self.token_contracts = import.token_contracts;
-                self.web4_contracts = import.web4_contracts;
-                self.contract_blocks = import.contract_blocks;
+                // Check if this is a genesis replacement (different genesis blocks)
+                let is_genesis_replacement = if !self.blocks.is_empty() && !import.blocks.is_empty() {
+                    self.blocks[0].header.block_hash != import.blocks[0].header.block_hash
+                } else {
+                    false
+                };
                 
-                info!(" Blockchain state successfully updated from peer");
-                Ok(lib_consensus::ChainMergeResult::ImportedAdopted)
+                if is_genesis_replacement {
+                    info!("🔀 Genesis mismatch detected - performing full consolidation merge");
+                    info!("   Old genesis: {}", hex::encode(self.blocks[0].header.block_hash.as_bytes()));
+                    info!("   New genesis: {}", hex::encode(import.blocks[0].header.block_hash.as_bytes()));
+                    
+                    // Perform intelligent merge: adopt imported chain but preserve unique local data
+                    match self.merge_with_genesis_mismatch(&import) {
+                        Ok(merge_report) => {
+                            info!("✅ Successfully merged chains with genesis consolidation");
+                            info!("{}", merge_report);
+                            Ok(lib_consensus::ChainMergeResult::ImportedAdopted)
+                        }
+                        Err(e) => {
+                            warn!("⚠️ Genesis merge failed: {} - adopting imported chain only", e);
+                            // Fallback: just adopt imported chain
+                            self.blocks = import.blocks;
+                            self.height = self.blocks.len() as u64 - 1;
+                            self.utxo_set = import.utxo_set;
+                            self.identity_registry = import.identity_registry;
+                            self.wallet_registry = import.wallet_registry;
+                            self.validator_registry = import.validator_registry;
+                            self.token_contracts = import.token_contracts;
+                            self.web4_contracts = import.web4_contracts;
+                            self.contract_blocks = import.contract_blocks;
+                            Ok(lib_consensus::ChainMergeResult::ImportedAdopted)
+                        }
+                    }
+                } else {
+                    info!("🔄 Same genesis - adopting longer chain");
+                    // Simple case: same genesis, just adopt imported chain
+                    self.blocks = import.blocks;
+                    self.height = self.blocks.len() as u64 - 1;
+                    self.utxo_set = import.utxo_set;
+                    self.identity_registry = import.identity_registry;
+                    self.wallet_registry = import.wallet_registry;
+                    self.validator_registry = import.validator_registry;
+                    self.token_contracts = import.token_contracts;
+                    self.web4_contracts = import.web4_contracts;
+                    self.contract_blocks = import.contract_blocks;
+                    
+                    // Clear nullifier set and rebuild from new chain
+                    self.nullifier_set.clear();
+                    for block in &self.blocks {
+                        for tx in &block.transactions {
+                            for input in &tx.inputs {
+                                self.nullifier_set.insert(input.nullifier);
+                            }
+                        }
+                    }
+                    
+                    info!("✅ Adopted imported chain");
+                    info!("   New height: {}", self.height);
+                    info!("   Identities: {}", self.identity_registry.len());
+                    info!("   Validators: {}", self.validator_registry.len());
+                    info!("   UTXOs: {}", self.utxo_set.len());
+                    
+                    Ok(lib_consensus::ChainMergeResult::ImportedAdopted)
+                }
             },
             lib_consensus::ChainDecision::Merge => {
                 info!(" Merging compatible chains");
@@ -1983,6 +2037,20 @@ impl Blockchain {
             },
             lib_consensus::ChainDecision::Conflict => {
                 warn!(" Chain conflict detected - different genesis blocks");
+                warn!("   Local genesis: {}", 
+                      if !self.blocks.is_empty() { 
+                          hex::encode(self.blocks[0].header.block_hash.as_bytes()) 
+                      } else { 
+                          "none".to_string() 
+                      });
+                warn!("   Imported genesis: {}", 
+                      if !import.blocks.is_empty() { 
+                          hex::encode(import.blocks[0].header.block_hash.as_bytes()) 
+                      } else { 
+                          "none".to_string() 
+                      });
+                warn!("   These chains are from different networks and cannot be merged");
+                
                 Ok(lib_consensus::ChainMergeResult::Failed(
                     "Genesis hash mismatch - chains from different networks".to_string()
                 ))
@@ -2186,6 +2254,161 @@ impl Blockchain {
             Ok("no new content to merge".to_string())
         } else {
             Ok(merged_items.join(", "))
+        }
+    }
+
+    /// Intelligently merge two chains with different genesis blocks
+    /// Adopts the imported chain as the base and consolidates unique data from local chain
+    /// This handles the case where two nodes create different genesis blocks and need to sync
+    fn merge_with_genesis_mismatch(&mut self, import: &BlockchainImport) -> Result<String> {
+        info!("🔀 Starting genesis mismatch merge");
+        info!("   Local chain: {} blocks, {} identities, {} validators", 
+              self.blocks.len(), self.identity_registry.len(), self.validator_registry.len());
+        info!("   Imported chain: {} blocks, {} identities, {} validators", 
+              import.blocks.len(), import.identity_registry.len(), import.validator_registry.len());
+        
+        let mut merge_report = Vec::new();
+        
+        // Step 1: Extract unique identities from local chain
+        let mut unique_identities = 0;
+        let mut local_identities_to_preserve = Vec::new();
+        for (did, identity_data) in &self.identity_registry {
+            if !import.identity_registry.contains_key(did) {
+                local_identities_to_preserve.push((did.clone(), identity_data.clone()));
+                unique_identities += 1;
+            }
+        }
+        
+        // Step 2: Extract unique validators from local chain
+        let mut unique_validators = 0;
+        let mut local_validators_to_preserve = Vec::new();
+        for (validator_id, validator_info) in &self.validator_registry {
+            if !import.validator_registry.contains_key(validator_id as &str) {
+                local_validators_to_preserve.push((validator_id.clone(), validator_info.clone()));
+                unique_validators += 1;
+            }
+        }
+        
+        // Step 3: Extract unique wallets from local chain
+        let mut unique_wallets = 0;
+        let mut local_wallets_to_preserve = Vec::new();
+        for (wallet_id, wallet_data) in &self.wallet_registry {
+            if !import.wallet_registry.contains_key(wallet_id as &str) {
+                local_wallets_to_preserve.push((wallet_id.clone(), wallet_data.clone()));
+                unique_wallets += 1;
+            }
+        }
+        
+        // Step 4: Extract unique UTXOs from local chain
+        let mut unique_utxos = 0;
+        let mut local_utxos_to_preserve = Vec::new();
+        for (utxo_hash, utxo) in &self.utxo_set {
+            if !import.utxo_set.contains_key(utxo_hash as &Hash) {
+                local_utxos_to_preserve.push((*utxo_hash, utxo.clone()));
+                unique_utxos += 1;
+            }
+        }
+        
+        // Step 5: Extract unique contracts from local chain
+        let mut unique_token_contracts = 0;
+        let mut local_token_contracts = Vec::new();
+        for (contract_id, contract) in &self.token_contracts {
+            if !import.token_contracts.contains_key(contract_id as &[u8; 32]) {
+                local_token_contracts.push((*contract_id, contract.clone()));
+                unique_token_contracts += 1;
+            }
+        }
+        
+        let mut unique_web4_contracts = 0;
+        let mut local_web4_contracts = Vec::new();
+        for (contract_id, contract) in &self.web4_contracts {
+            if !import.web4_contracts.contains_key(contract_id as &[u8; 32]) {
+                local_web4_contracts.push((*contract_id, contract.clone()));
+                unique_web4_contracts += 1;
+            }
+        }
+        
+        info!("📊 Found unique local data:");
+        info!("   {} identities", unique_identities);
+        info!("   {} validators", unique_validators);
+        info!("   {} wallets", unique_wallets);
+        info!("   {} UTXOs", unique_utxos);
+        info!("   {} token contracts", unique_token_contracts);
+        info!("   {} web4 contracts", unique_web4_contracts);
+        
+        // Step 6: Adopt imported chain as base
+        self.blocks = import.blocks.clone();
+        self.height = self.blocks.len() as u64 - 1;
+        self.identity_registry = import.identity_registry.clone();
+        self.wallet_registry = import.wallet_registry.clone();
+        self.validator_registry = import.validator_registry.clone();
+        self.utxo_set = import.utxo_set.clone();
+        self.token_contracts = import.token_contracts.clone();
+        self.web4_contracts = import.web4_contracts.clone();
+        self.contract_blocks = import.contract_blocks.clone();
+        
+        // Step 7: Merge unique local data into adopted chain
+        for (did, identity_data) in local_identities_to_preserve {
+            self.identity_registry.insert(did, identity_data);
+        }
+        if unique_identities > 0 {
+            merge_report.push(format!("merged {} unique identities", unique_identities));
+        }
+        
+        for (validator_id, validator_info) in local_validators_to_preserve {
+            self.validator_registry.insert(validator_id, validator_info);
+        }
+        if unique_validators > 0 {
+            merge_report.push(format!("merged {} unique validators", unique_validators));
+        }
+        
+        for (wallet_id, wallet_data) in local_wallets_to_preserve {
+            self.wallet_registry.insert(wallet_id, wallet_data);
+        }
+        if unique_wallets > 0 {
+            merge_report.push(format!("merged {} unique wallets", unique_wallets));
+        }
+        
+        for (utxo_hash, utxo) in local_utxos_to_preserve {
+            self.utxo_set.insert(utxo_hash, utxo);
+        }
+        if unique_utxos > 0 {
+            merge_report.push(format!("merged {} unique UTXOs", unique_utxos));
+        }
+        
+        for (contract_id, contract) in local_token_contracts {
+            self.token_contracts.insert(contract_id, contract);
+        }
+        if unique_token_contracts > 0 {
+            merge_report.push(format!("merged {} unique token contracts", unique_token_contracts));
+        }
+        
+        for (contract_id, contract) in local_web4_contracts {
+            self.web4_contracts.insert(contract_id, contract);
+        }
+        if unique_web4_contracts > 0 {
+            merge_report.push(format!("merged {} unique web4 contracts", unique_web4_contracts));
+        }
+        
+        // Step 8: Rebuild nullifier set from merged state
+        self.nullifier_set.clear();
+        for block in &self.blocks {
+            for tx in &block.transactions {
+                for input in &tx.inputs {
+                    self.nullifier_set.insert(input.nullifier);
+                }
+            }
+        }
+        
+        info!("🎉 Genesis mismatch merge complete!");
+        info!("   Final chain: {} blocks, {} identities, {} validators, {} UTXOs", 
+              self.blocks.len(), self.identity_registry.len(), 
+              self.validator_registry.len(), self.utxo_set.len());
+        
+        if merge_report.is_empty() {
+            Ok("adopted imported chain (no unique local data to merge)".to_string())
+        } else {
+            Ok(format!("adopted imported chain and {}", merge_report.join(", ")))
         }
     }
 
