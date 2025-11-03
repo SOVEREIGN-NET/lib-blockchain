@@ -2012,7 +2012,7 @@ impl Blockchain {
                     Ok(status) => {
                         // Get validator stats for stake information
                         let validator_infos = coordinator.list_all_validators().await.unwrap_or_default();
-                        let total_stake: u128 = validator_infos.iter().map(|v| v.stake_amount as u128).sum();
+                        let total_stake: u128 = validator_infos.iter().map(|v| v.stake_amount as u128).fold(0u128, |acc, x| acc.saturating_add(x));
                         
                         // Calculate validator set hash
                         let validator_ids: Vec<String> = validator_infos.iter()
@@ -2039,7 +2039,7 @@ impl Blockchain {
         // Estimate TPS based on recent blocks
         let expected_tps = if self.blocks.len() >= 10 {
             let recent_blocks = &self.blocks[self.blocks.len().saturating_sub(10)..];
-            let total_txs: u64 = recent_blocks.iter().map(|b| b.transactions.len() as u64).sum();
+            let total_txs: u64 = recent_blocks.iter().map(|b| b.transactions.len() as u64).fold(0u64, |acc, x| acc.saturating_add(x));
             let time_span = recent_blocks.last().map(|b| b.header.timestamp)
                 .unwrap_or(0) - recent_blocks.first().map(|b| b.header.timestamp)
                 .unwrap_or(0);
@@ -2063,7 +2063,7 @@ impl Blockchain {
         lib_consensus::ChainSummary {
             height: self.get_height(),
             total_work: self.calculate_total_work(),
-            total_transactions: self.blocks.iter().map(|b| b.transactions.len() as u64).sum(),
+            total_transactions: self.blocks.iter().map(|b| b.transactions.len() as u64).fold(0u64, |acc, x| acc.saturating_add(x)),
             total_identities: self.identity_registry.len() as u64,
             total_utxos: self.utxo_set.len() as u64,
             total_contracts: (self.token_contracts.len() + self.web4_contracts.len()) as u64,
@@ -2277,7 +2277,7 @@ impl Blockchain {
         // Estimate TPS based on recent blocks in imported chain
         let expected_tps = if blocks.len() >= 10 {
             let recent_blocks = &blocks[blocks.len().saturating_sub(10)..];
-            let total_txs: u64 = recent_blocks.iter().map(|b| b.transactions.len() as u64).sum();
+            let total_txs: u64 = recent_blocks.iter().map(|b| b.transactions.len() as u64).fold(0u64, |acc, x| acc.saturating_add(x));
             let time_span = recent_blocks.last().map(|b| b.header.timestamp)
                 .unwrap_or(0) - recent_blocks.first().map(|b| b.header.timestamp)
                 .unwrap_or(0);
@@ -2308,7 +2308,7 @@ impl Blockchain {
         let total_validator_stake: u128 = identity_registry.values()
             .filter(|id| id.identity_type.contains("validator") || id.identity_type.contains("Validator"))
             .map(|id| id.registration_fee as u128)
-            .sum();
+            .fold(0u128, |acc, x| acc.saturating_add(x));
 
         // Calculate validator set hash from imported identities
         let validator_identities: Vec<String> = identity_registry.iter()
@@ -2324,7 +2324,7 @@ impl Blockchain {
         lib_consensus::ChainSummary {
             height: blocks.len().saturating_sub(1) as u64,
             total_work: self.calculate_imported_total_work(blocks),
-            total_transactions: blocks.iter().map(|b| b.transactions.len() as u64).sum(),
+            total_transactions: blocks.iter().map(|b| b.transactions.len() as u64).fold(0u64, |acc, x| acc.saturating_add(x)),
             total_identities: identity_registry.len() as u64,
             total_utxos: utxo_set.len() as u64,
             total_contracts: (token_contracts.len() + web4_contracts.len()) as u64,
@@ -2344,14 +2344,14 @@ impl Blockchain {
     fn calculate_imported_total_work(&self, blocks: &[Block]) -> u128 {
         blocks.iter()
             .map(|block| block.header.difficulty.work())
-            .sum()
+            .fold(0u128, |acc, work| acc.saturating_add(work))
     }
 
     /// Calculate total work for current blockchain
     fn calculate_total_work(&self) -> u128 {
         self.blocks.iter()
             .map(|block| block.header.difficulty.work())
-            .sum()
+            .fold(0u128, |acc, work| acc.saturating_add(work))
     }
 
     // ============================================================================
