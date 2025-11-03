@@ -1866,6 +1866,12 @@ impl Blockchain {
 
         info!(" Exporting blockchain: {} blocks, {} validators, {} token contracts, {} web4 contracts", 
             self.blocks.len(), self.validator_registry.len(), self.token_contracts.len(), self.web4_contracts.len());
+        
+        // Debug: Log transaction counts for each block
+        for (i, block) in self.blocks.iter().enumerate() {
+            info!("   Block {}: height={}, transactions={}, merkle_root={}", 
+                  i, block.height(), block.transactions.len(), hex::encode(block.header.merkle_root.as_bytes()));
+        }
 
         bincode::serialize(&export)
             .map_err(|e| anyhow::anyhow!("Failed to serialize blockchain: {}", e))
