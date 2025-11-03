@@ -1911,6 +1911,12 @@ impl Blockchain {
             &import.web4_contracts
         );
 
+        // DEBUG: Log genesis hashes being compared
+        info!("🔍 Comparing blockchains for merge:");
+        info!("   Local genesis hash:    {}", local_summary.genesis_hash);
+        info!("   Imported genesis hash: {}", imported_summary.genesis_hash);
+        info!("   Hashes equal: {}", local_summary.genesis_hash == imported_summary.genesis_hash);
+
         // Use consensus rules to decide which chain to adopt
         let decision = lib_consensus::ChainEvaluator::evaluate_chains(&local_summary, &imported_summary);
 
