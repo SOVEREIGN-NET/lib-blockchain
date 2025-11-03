@@ -2066,8 +2066,10 @@ impl Blockchain {
 
     /// Create chain summary for local blockchain
     async fn create_local_chain_summary_async(&self) -> lib_consensus::ChainSummary {
+        // Use merkle root as genesis hash - this reflects the actual transaction content
+        // Different validators in genesis will have different merkle roots
         let genesis_hash = self.blocks.first()
-            .map(|b| b.header.block_hash.to_string())
+            .map(|b| b.header.merkle_root.to_string())
             .unwrap_or_else(|| "none".to_string());
             
         let genesis_timestamp = self.blocks.first()
@@ -2514,8 +2516,10 @@ impl Blockchain {
         token_contracts: &HashMap<[u8; 32], crate::contracts::TokenContract>,
         web4_contracts: &HashMap<[u8; 32], crate::contracts::web4::Web4Contract>
     ) -> lib_consensus::ChainSummary {
+        // Use merkle root as genesis hash - this reflects the actual transaction content
+        // Different validators in genesis will have different merkle roots
         let genesis_hash = blocks.first()
-            .map(|b| b.header.block_hash.to_string())
+            .map(|b| b.header.merkle_root.to_string())
             .unwrap_or_else(|| "none".to_string());
             
         let genesis_timestamp = blocks.first()
