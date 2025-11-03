@@ -269,7 +269,9 @@ impl crate::types::hash::Hashable for BlockHeader {
 
 /// Genesis block creation
 pub fn create_genesis_block() -> Block {
-    let genesis_timestamp = 1640995200; // January 1, 2022 00:00:00 UTC
+    // FIXED genesis timestamp for network consistency
+    // November 1, 2025 00:00:00 UTC - ensures all nodes create identical genesis
+    let genesis_timestamp = 1730419200;
     // Genesis blocks should use easy consensus difficulty like other system transaction blocks
     let genesis_difficulty = Difficulty::from_bits(0x1fffffff);
     
