@@ -111,6 +111,42 @@ pub struct WalletTransactionData {
     pub initial_balance: u64,
 }
 
+/// Minimal wallet reference for blockchain sync (sensitive data moved to DHT)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletReference {
+    /// Unique wallet identifier (32-byte hash)
+    pub wallet_id: Hash,
+    /// Wallet type (Primary, UBI, Savings, etc.)
+    pub wallet_type: String,
+    /// Public key for wallet operations
+    pub public_key: Vec<u8>,
+    /// Owner identity ID (if associated with DID)
+    pub owner_identity_id: Option<Hash>,
+    /// Creation timestamp
+    pub created_at: u64,
+    /// Registration fee paid
+    pub registration_fee: u64,
+}
+
+/// Sensitive wallet data stored in encrypted DHT
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletPrivateData {
+    /// Human-readable wallet name (private)
+    pub wallet_name: String,
+    /// Optional wallet alias (private)
+    pub alias: Option<String>,
+    /// Seed phrase commitment hash (for recovery verification)
+    pub seed_commitment: Hash,
+    /// Wallet capabilities flags
+    pub capabilities: u32,
+    /// Initial balance (if any)
+    pub initial_balance: u64,
+    /// Private transaction history
+    pub transaction_history: Vec<Hash>,
+    /// Private notes/metadata
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
 /// Validator registration transaction data (processed by lib-consensus package)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidatorTransactionData {

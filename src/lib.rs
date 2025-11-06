@@ -24,7 +24,7 @@ pub mod contracts;
 
 // Re-export core types for convenience
 pub use types::*;
-pub use transaction::*;
+pub use transaction::{*, WalletReference, WalletPrivateData};
 pub use block::*;
 pub use blockchain::{Blockchain, BlockchainImport, BlockchainBroadcastMessage, EconomicsTransaction};
 pub use mempool::*;

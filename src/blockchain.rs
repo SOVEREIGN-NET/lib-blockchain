@@ -136,7 +136,7 @@ pub struct BlockchainImport {
     pub blocks: Vec<Block>,
     pub utxo_set: HashMap<Hash, TransactionOutput>,
     pub identity_registry: HashMap<String, IdentityTransactionData>,
-    pub wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+    pub wallet_references: HashMap<String, crate::transaction::WalletReference>,  // Only minimal references
     pub validator_registry: HashMap<String, ValidatorInfo>,
     pub token_contracts: HashMap<[u8; 32], crate::contracts::TokenContract>,
     pub web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
@@ -1642,6 +1642,30 @@ impl Blockchain {
         crate::integration::economic_integration::utils::is_network_reward(transaction)
     }
 
+    // ===== WALLET REFERENCE CONVERSION =====
+    
+    /// Convert minimal wallet references to full wallet data
+    /// Note: Sensitive data (names, aliases, seed commitments) will need DHT retrieval
+    fn convert_wallet_references_to_full_data(&self, wallet_refs: &HashMap<String, crate::transaction::WalletReference>) -> HashMap<String, crate::transaction::WalletTransactionData> {
+        wallet_refs.iter().map(|(id, wallet_ref)| {
+            // Create full wallet data from reference (missing sensitive fields will be empty/default)
+            let wallet_data = crate::transaction::WalletTransactionData {
+                wallet_id: wallet_ref.wallet_id,
+                wallet_type: wallet_ref.wallet_type.clone(),
+                wallet_name: format!("Wallet-{}", hex::encode(&wallet_ref.wallet_id.as_bytes()[..8])), // Default name
+                alias: None, // Will need DHT retrieval for real alias
+                public_key: wallet_ref.public_key.clone(),
+                owner_identity_id: wallet_ref.owner_identity_id,
+                seed_commitment: crate::types::Hash::from([0u8; 32]), // Default - will need DHT for real commitment
+                created_at: wallet_ref.created_at,
+                registration_fee: wallet_ref.registration_fee,
+                capabilities: 0, // Default - will need DHT for real capabilities
+                initial_balance: 0, // Default - will need DHT for real balance
+            };
+            (id.clone(), wallet_data)
+        }).collect()
+    }
+
     // ===== BLOCKCHAIN RECOVERY METHODS =====
 
     /// Recover blockchain state from persistent storage
@@ -1846,18 +1870,33 @@ impl Blockchain {
             blocks: Vec<Block>,
             utxo_set: HashMap<Hash, TransactionOutput>,
             identity_registry: HashMap<String, IdentityTransactionData>,
-            wallet_registry: HashMap<String, crate::transaction::WalletTransactionData>,
+            wallet_references: HashMap<String, crate::transaction::WalletReference>,  // Only public references
             validator_registry: HashMap<String, ValidatorInfo>,
             token_contracts: HashMap<[u8; 32], crate::contracts::TokenContract>,
             web4_contracts: HashMap<[u8; 32], crate::contracts::web4::Web4Contract>,
             contract_blocks: HashMap<[u8; 32], u64>,
         }
 
+        // Convert full wallet data to minimal references for sync
+        let wallet_references: HashMap<String, crate::transaction::WalletReference> = self.wallet_registry.iter()
+            .map(|(id, wallet_data)| {
+                let wallet_ref = crate::transaction::WalletReference {
+                    wallet_id: wallet_data.wallet_id,
+                    wallet_type: wallet_data.wallet_type.clone(),
+                    public_key: wallet_data.public_key.clone(),
+                    owner_identity_id: wallet_data.owner_identity_id,
+                    created_at: wallet_data.created_at,
+                    registration_fee: wallet_data.registration_fee,
+                };
+                (id.clone(), wallet_ref)
+            })
+            .collect();
+
         let export = BlockchainExport {
             blocks: self.blocks.clone(),
             utxo_set: self.utxo_set.clone(),
             identity_registry: self.identity_registry.clone(),
-            wallet_registry: self.wallet_registry.clone(),
+            wallet_references,  // Only minimal wallet references (no sensitive data)
             validator_registry: self.validator_registry.clone(),
             token_contracts: self.token_contracts.clone(),
             web4_contracts: self.web4_contracts.clone(),
@@ -1983,7 +2022,8 @@ impl Blockchain {
                             self.height = self.blocks.len() as u64 - 1;
                             self.utxo_set = import.utxo_set;
                             self.identity_registry = import.identity_registry;
-                            self.wallet_registry = import.wallet_registry;
+                            // Convert wallet references to full data (sensitive data will need DHT retrieval)
+                            self.wallet_registry = self.convert_wallet_references_to_full_data(&import.wallet_references);
                             self.validator_registry = import.validator_registry;
                             self.token_contracts = import.token_contracts;
                             self.web4_contracts = import.web4_contracts;
@@ -1998,7 +2038,8 @@ impl Blockchain {
                     self.height = self.blocks.len() as u64 - 1;
                     self.utxo_set = import.utxo_set;
                     self.identity_registry = import.identity_registry;
-                    self.wallet_registry = import.wallet_registry;
+                    // Convert wallet references to full data (sensitive data will need DHT retrieval)
+                    self.wallet_registry = self.convert_wallet_references_to_full_data(&import.wallet_references);
                     self.validator_registry = import.validator_registry;
                     self.token_contracts = import.token_contracts;
                     self.web4_contracts = import.web4_contracts;
@@ -2208,11 +2249,25 @@ impl Blockchain {
             merged_items.push(format!("{} identities", new_identities));
         }
         
-        // Merge wallets (add new ones, preserve existing)
+        // Merge wallets (add new ones, preserve existing) 
         let mut new_wallets = 0;
-        for (wallet_id, wallet_data) in &import.wallet_registry {
-            if !self.wallet_registry.contains_key(wallet_id as &str) {
-                self.wallet_registry.insert(wallet_id.clone(), wallet_data.clone());
+        for (wallet_id, wallet_ref) in &import.wallet_references {
+            if !self.wallet_registry.contains_key(wallet_id) {
+                // Convert wallet reference to full data (with default sensitive fields)
+                let wallet_data = crate::transaction::WalletTransactionData {
+                    wallet_id: wallet_ref.wallet_id,
+                    wallet_type: wallet_ref.wallet_type.clone(),
+                    wallet_name: format!("Wallet-{}", hex::encode(&wallet_ref.wallet_id.as_bytes()[..8])),
+                    alias: None,
+                    public_key: wallet_ref.public_key.clone(),
+                    owner_identity_id: wallet_ref.owner_identity_id,
+                    seed_commitment: crate::types::Hash::from([0u8; 32]),
+                    created_at: wallet_ref.created_at,
+                    registration_fee: wallet_ref.registration_fee,
+                    capabilities: 0,
+                    initial_balance: 0,
+                };
+                self.wallet_registry.insert(wallet_id.clone(), wallet_data);
                 new_wallets += 1;
             }
         }
@@ -2347,7 +2402,7 @@ impl Blockchain {
         let mut unique_wallets = 0;
         let mut local_wallets_to_preserve = Vec::new();
         for (wallet_id, wallet_data) in &self.wallet_registry {
-            if !import.wallet_registry.contains_key(wallet_id as &str) {
+            if !import.wallet_references.contains_key(wallet_id) {
                 local_wallets_to_preserve.push((wallet_id.clone(), wallet_data.clone()));
                 unique_wallets += 1;
             }
@@ -2394,7 +2449,7 @@ impl Blockchain {
         self.blocks = import.blocks.clone();
         self.height = self.blocks.len() as u64 - 1;
         self.identity_registry = import.identity_registry.clone();
-        self.wallet_registry = import.wallet_registry.clone();
+        self.wallet_registry = self.convert_wallet_references_to_full_data(&import.wallet_references);
         self.validator_registry = import.validator_registry.clone();
         self.utxo_set = import.utxo_set.clone();
         self.token_contracts = import.token_contracts.clone();
@@ -2538,10 +2593,24 @@ impl Blockchain {
         
         // Extract unique wallets from imported chain
         let mut unique_wallets = 0;
-        for (wallet_id, wallet_data) in &import.wallet_registry {
-            if !self.wallet_registry.contains_key(wallet_id as &str) {
+        for (wallet_id, wallet_ref) in &import.wallet_references {
+            if !self.wallet_registry.contains_key(wallet_id) {
                 info!("  Preserving imported wallet: {}", wallet_id);
-                self.wallet_registry.insert(wallet_id.clone(), wallet_data.clone());
+                // Convert wallet reference to full data
+                let wallet_data = crate::transaction::WalletTransactionData {
+                    wallet_id: wallet_ref.wallet_id,
+                    wallet_type: wallet_ref.wallet_type.clone(),
+                    wallet_name: format!("Wallet-{}", hex::encode(&wallet_ref.wallet_id.as_bytes()[..8])),
+                    alias: None,
+                    public_key: wallet_ref.public_key.clone(),
+                    owner_identity_id: wallet_ref.owner_identity_id,
+                    seed_commitment: crate::types::Hash::from([0u8; 32]),
+                    created_at: wallet_ref.created_at,
+                    registration_fee: wallet_ref.registration_fee,
+                    capabilities: 0,
+                    initial_balance: 0,
+                };
+                self.wallet_registry.insert(wallet_id.clone(), wallet_data);
                 unique_wallets += 1;
             }
         }
@@ -2630,10 +2699,24 @@ impl Blockchain {
         
         // Merge wallets (add new ones that don't exist in local chain)
         let mut new_wallets = 0;
-        for (wallet_id, wallet_data) in &import.wallet_registry {
-            if !self.wallet_registry.contains_key(wallet_id as &str) {
+        for (wallet_id, wallet_ref) in &import.wallet_references {
+            if !self.wallet_registry.contains_key(wallet_id) {
                 info!("  Adding unique wallet: {}", wallet_id);
-                self.wallet_registry.insert(wallet_id.clone(), wallet_data.clone());
+                // Convert wallet reference to full data
+                let wallet_data = crate::transaction::WalletTransactionData {
+                    wallet_id: wallet_ref.wallet_id,
+                    wallet_type: wallet_ref.wallet_type.clone(),
+                    wallet_name: format!("Wallet-{}", hex::encode(&wallet_ref.wallet_id.as_bytes()[..8])),
+                    alias: None,
+                    public_key: wallet_ref.public_key.clone(),
+                    owner_identity_id: wallet_ref.owner_identity_id,
+                    seed_commitment: crate::types::Hash::from([0u8; 32]),
+                    created_at: wallet_ref.created_at,
+                    registration_fee: wallet_ref.registration_fee,
+                    capabilities: 0,
+                    initial_balance: 0,
+                };
+                self.wallet_registry.insert(wallet_id.clone(), wallet_data);
                 new_wallets += 1;
             }
         }
