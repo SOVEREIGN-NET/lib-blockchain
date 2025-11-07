@@ -197,27 +197,7 @@ pub struct BlockchainInfo {
     pub errors: Option<String>,
 }
 
-// Global shared blockchain provider
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::sync::OnceLock;
+// NOTE: Shared blockchain provider has been removed.
+// Use zhtp::runtime::blockchain_provider::get_global_blockchain() instead.
+// This provides better control over blockchain initialization and lifecycle.
 
-/// Global shared blockchain instance
-static SHARED_BLOCKCHAIN: OnceLock<Arc<RwLock<Blockchain>>> = OnceLock::new();
-
-/// Initialize the global shared blockchain
-pub fn initialize_shared_blockchain() -> Arc<RwLock<Blockchain>> {
-    let blockchain = Blockchain::new().expect("Failed to create blockchain");
-    let shared = Arc::new(RwLock::new(blockchain));
-    SHARED_BLOCKCHAIN.set(shared.clone()).expect("Shared blockchain already initialized");
-    shared
-}
-
-/// Get the shared blockchain instance
-pub async fn get_shared_blockchain() -> Result<Arc<RwLock<Blockchain>>, anyhow::Error> {
-    if let Some(blockchain) = SHARED_BLOCKCHAIN.get() {
-        Ok(blockchain.clone())
-    } else {
-        Err(anyhow::anyhow!("Shared blockchain not initialized. Call initialize_shared_blockchain() first."))
-    }
-}

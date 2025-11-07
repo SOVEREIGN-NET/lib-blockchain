@@ -299,7 +299,11 @@ impl TransactionValidator {
         // Contract validation is handled by lib-contracts package
         // Here we just validate basic structure
         
-        if transaction.inputs.is_empty() {
+        // Allow system contract deployments (empty inputs) for Web4 and system contracts
+        // These are validated as system transactions in development/testnet environments
+        let is_system_contract = transaction.inputs.is_empty();
+        
+        if !is_system_contract && transaction.inputs.is_empty() {
             return Err(ValidationError::InvalidInputs);
         }
 
