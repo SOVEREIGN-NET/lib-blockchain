@@ -1530,6 +1530,7 @@ dependencies = [
  "futures",
  "hex",
  "jni",
+ "lib-blockchain",
  "lib-crypto",
  "lib-economy",
  "lib-identity",
