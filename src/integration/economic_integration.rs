@@ -738,7 +738,6 @@ mod tests {
             250, // tx_size
             10000, // amount
             Priority::Normal,
-            false, // not system transaction
         );
 
         assert!(network_fee > 0);

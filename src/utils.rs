@@ -210,6 +210,7 @@ pub mod testing {
     pub fn create_dummy_transaction() -> Transaction {
         Transaction {
             version: 1,
+            chain_id: 0x01, // mainnet
             transaction_type: crate::types::TransactionType::Transfer,
             inputs: vec![],
             outputs: vec![],
@@ -222,6 +223,8 @@ pub mod testing {
             },
             memo: b"test transaction".to_vec(),
             identity_data: None,
+            wallet_data: None,
+            validator_data: None,
         }
     }
     

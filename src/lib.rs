@@ -17,6 +17,7 @@ pub mod blockchain;
 pub mod mempool;
 pub mod integration;
 pub mod utils;
+pub mod edge_node_state;
 
 // Smart contracts submodule (feature-gated)
 #[cfg(feature = "contracts")]

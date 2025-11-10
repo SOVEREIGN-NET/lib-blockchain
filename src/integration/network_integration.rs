@@ -176,6 +176,7 @@ mod tests {
         
         let transaction = Transaction {
             version: 1,
+            chain_id: 0x01, // mainnet
             transaction_type: TransactionType::Transfer,
             inputs: Vec::new(),
             outputs: Vec::new(),
@@ -183,6 +184,8 @@ mod tests {
             signature: keypair.sign(b"test_data")?,
             memo: b"test memo".to_vec(),
             identity_data: None,
+            wallet_data: None,
+            validator_data: None,
         };
         
         let serialized = serialize_transaction_for_network(&transaction)?;
