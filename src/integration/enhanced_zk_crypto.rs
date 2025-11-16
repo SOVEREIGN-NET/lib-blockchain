@@ -434,6 +434,9 @@ impl EnhancedTransactionCreator {
             identity_data: None,
             wallet_data: None,
             validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         };
         
         // Sign transaction using lib-crypto

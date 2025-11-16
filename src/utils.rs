@@ -257,6 +257,8 @@ pub mod testing {
             created_at: time::current_timestamp(),
             registration_fee: 1000,
             dao_fee: 100,
+            controlled_nodes: Vec::new(),
+            owned_wallets: Vec::new(),
         }
     }
 }

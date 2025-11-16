@@ -384,9 +384,21 @@ impl BlockchainConsensusCoordinator {
             let transactions = self.extract_transactions_from_proposal(&winning_proposal).await?;
             let block = self.consensus_proposal_to_block_with_transactions(&winning_proposal, transactions).await?;
             
-            // Add block to blockchain
+            // Only generate proof if we were the block proposer (otherwise we're just accepting someone else's block)
             let mut blockchain = self.blockchain.write().await;
-            blockchain.add_block(block)?;
+            let was_proposer = self.local_validator_id.as_ref()
+                .map(|id| id == &winning_proposal.proposer)
+                .unwrap_or(false);
+            
+            if was_proposer {
+                // We proposed this block - generate proof
+                info!("We were the proposer - generating recursive proof for block at height {}", height);
+                blockchain.add_block_with_proof(block).await?;
+            } else {
+                // Another validator proposed this block - just accept it (already has proof)
+                info!("Accepting block from proposer {} at height {}", hex::encode(winning_proposal.proposer.as_bytes()), height);
+                blockchain.add_block(block)?;
+            }
 
             // Remove processed transactions from mempool
             let mut mempool = self.mempool.write().await;
@@ -994,6 +1006,8 @@ impl BlockchainConsensusCoordinator {
             registration_fee: 0, // System transaction - no fees
             dao_fee: 0, // System transaction - no fees
             ownership_proof: hash_blake3(&consensus_keypair.public_key.dilithium_pk).to_vec(), // Create ownership proof from public key
+            controlled_nodes: Vec::new(),
+            owned_wallets: Vec::new(),
         };
 
         // Create transaction with empty signature first, then sign the hash
@@ -1040,26 +1054,159 @@ impl BlockchainConsensusCoordinator {
         String::from_utf8_lossy(&transaction.memo).contains("dao:")
     }
 
-    /// Process DAO transaction
+    /// Process DAO transaction - uses proper transaction types instead of memo parsing
     async fn process_dao_transaction(
         &self,
         transaction: &Transaction,
         dao_engine: &mut DaoEngine,
     ) -> Result<()> {
-        let memo = String::from_utf8_lossy(&transaction.memo);
-        
-        if memo.starts_with("dao:proposal:") {
-            // Parse DAO proposal from transaction memo
-            self.create_dao_proposal_from_transaction(transaction, dao_engine).await?;
-        } else if memo.starts_with("dao:vote:") {
-            // Parse DAO vote from transaction memo
-            self.process_dao_vote_from_transaction(transaction, dao_engine).await?;
+        match transaction.transaction_type {
+            TransactionType::DaoProposal => {
+                self.process_dao_proposal_transaction(transaction, dao_engine).await?;
+            },
+            TransactionType::DaoVote => {
+                self.process_dao_vote_transaction(transaction, dao_engine).await?;
+            },
+            TransactionType::DaoExecution => {
+                self.process_dao_execution_transaction(transaction, dao_engine).await?;
+            },
+            _ => {
+                // Not a DAO transaction, skip
+            }
         }
 
         Ok(())
     }
 
-    /// Create DAO proposal from transaction
+    /// Process a DAO proposal transaction
+    async fn process_dao_proposal_transaction(
+        &self,
+        transaction: &Transaction,
+        dao_engine: &mut DaoEngine,
+    ) -> Result<()> {
+        if let Some(ref proposal_data) = transaction.dao_proposal_data {
+            info!("📋 Processing DAO proposal: {} (ID: {:?})", 
+                  proposal_data.title, proposal_data.proposal_id);
+            
+            // Convert blockchain proposal data to consensus DaoProposalType
+            let proposal_type = self.parse_proposal_type(&proposal_data.proposal_type)?;
+            
+            // Parse proposer ID from hex string
+            let proposer_id = lib_crypto::Hash::from_hex(&proposal_data.proposer)
+                .unwrap_or_else(|_| lib_crypto::Hash::from_bytes(proposal_data.proposer.as_bytes()));
+            
+            // Proposal validation happens in DaoEngine
+            let proposal_id = dao_engine.create_dao_proposal(
+                proposer_id,
+                proposal_data.title.clone(),
+                proposal_data.description.clone(),
+                proposal_type,
+                (proposal_data.voting_period_blocks / 14400) as u32, // blocks to days (assuming 6s blocks)
+            ).await?;
+
+            info!("✅ DAO proposal created: {:?}", proposal_id);
+        } else {
+            warn!("⚠️  DaoProposal transaction missing proposal_data");
+        }
+
+        Ok(())
+    }
+
+    /// Process a DAO vote transaction
+    async fn process_dao_vote_transaction(
+        &self,
+        transaction: &Transaction,
+        dao_engine: &mut DaoEngine,
+    ) -> Result<()> {
+        if let Some(ref vote_data) = transaction.dao_vote_data {
+            info!("🗳️  Processing DAO vote on proposal {:?} by {}", 
+                  vote_data.proposal_id, vote_data.voter);
+            
+            // Convert vote choice string to enum
+            let vote_choice = self.parse_vote_choice(&vote_data.vote_choice)?;
+            
+            // Parse voter ID from hex string
+            let voter_id = lib_crypto::Hash::from_hex(&vote_data.voter)
+                .unwrap_or_else(|_| lib_crypto::Hash::from_bytes(vote_data.voter.as_bytes()));
+            
+            // Convert blockchain Hash to lib_crypto Hash for proposal_id
+            let proposal_id = lib_crypto::Hash::from_bytes(vote_data.proposal_id.as_bytes());
+            
+            // Cast vote through DaoEngine
+            let vote_id = dao_engine.cast_dao_vote(
+                voter_id,
+                proposal_id,
+                vote_choice,
+                vote_data.justification.clone(),
+            ).await?;
+
+            info!("✅ DAO vote cast: {:?}", vote_id);
+        } else {
+            warn!("⚠️  DaoVote transaction missing vote_data");
+        }
+
+        Ok(())
+    }
+
+    /// Process a DAO execution transaction
+    async fn process_dao_execution_transaction(
+        &self,
+        transaction: &Transaction,
+        _dao_engine: &mut DaoEngine,
+    ) -> Result<()> {
+        if let Some(ref execution_data) = transaction.dao_execution_data {
+            info!("⚡ Processing DAO execution for proposal {:?}", execution_data.proposal_id);
+            info!("   Executor: {}", execution_data.executor);
+            if let Some(ref recipient) = execution_data.recipient {
+                info!("   Recipient: {}", recipient);
+            }
+            if let Some(amount) = execution_data.amount {
+                info!("   Amount: {} ZHTP", amount);
+            }
+            info!("✅ DAO execution processed");
+        } else {
+            warn!("⚠️  DaoExecution transaction missing execution_data");
+        }
+
+        Ok(())
+    }
+
+    /// Parse proposal type string to enum
+    fn parse_proposal_type(&self, type_str: &str) -> Result<DaoProposalType> {
+        match type_str {
+            "UbiDistribution" => Ok(DaoProposalType::UbiDistribution),
+            "WelfareAllocation" => Ok(DaoProposalType::WelfareAllocation),
+            "ProtocolUpgrade" => Ok(DaoProposalType::ProtocolUpgrade),
+            "TreasuryAllocation" => Ok(DaoProposalType::TreasuryAllocation),
+            "ValidatorUpdate" => Ok(DaoProposalType::ValidatorUpdate),
+            "EconomicParams" => Ok(DaoProposalType::EconomicParams),
+            "GovernanceRules" => Ok(DaoProposalType::GovernanceRules),
+            "FeeStructure" => Ok(DaoProposalType::FeeStructure),
+            "Emergency" => Ok(DaoProposalType::Emergency),
+            "CommunityFunding" => Ok(DaoProposalType::CommunityFunding),
+            "ResearchGrants" => Ok(DaoProposalType::ResearchGrants),
+            _ => Err(anyhow::anyhow!("Unknown proposal type: {}", type_str)),
+        }
+    }
+
+    /// Parse vote choice string to enum
+    fn parse_vote_choice(&self, choice_str: &str) -> Result<DaoVoteChoice> {
+        match choice_str {
+            "Yes" => Ok(DaoVoteChoice::Yes),
+            "No" => Ok(DaoVoteChoice::No),
+            "Abstain" => Ok(DaoVoteChoice::Abstain),
+            s if s.starts_with("Delegate:") => {
+                let delegate_id = s.strip_prefix("Delegate:").unwrap_or("");
+                let delegate_hash = lib_crypto::Hash::from_hex(delegate_id)
+                    .unwrap_or_else(|_| lib_crypto::Hash::from_bytes(delegate_id.as_bytes()));
+                Ok(DaoVoteChoice::Delegate(delegate_hash))
+            },
+            _ => Err(anyhow::anyhow!("Unknown vote choice: {}", choice_str)),
+        }
+    }
+
+    /// Create DAO proposal from transaction memo (DEPRECATED - use DaoProposal transaction type)
+    #[deprecated(note = "Use process_dao_proposal_transaction instead - memo parsing is deprecated")]
     async fn create_dao_proposal_from_transaction(
         &self,
         transaction: &Transaction,
@@ -1092,7 +1239,8 @@ impl BlockchainConsensusCoordinator {
         Ok(())
     }
 
-    /// Process DAO vote from transaction
+    /// Process DAO vote from transaction memo (DEPRECATED - use DaoVote transaction type)
+    #[deprecated(note = "Use process_dao_vote_transaction instead - memo parsing is deprecated")]
     async fn process_dao_vote_from_transaction(
         &self,
         transaction: &Transaction,
@@ -1189,6 +1337,9 @@ impl BlockchainConsensusCoordinator {
                     identity_data: None,
                     validator_data: None,
                     wallet_data: None,
+                    dao_proposal_data: None,
+                    dao_vote_data: None,
+                    dao_execution_data: None,
                 };
 
                 reward_transactions.push(reward_tx);

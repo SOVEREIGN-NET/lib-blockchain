@@ -259,6 +259,9 @@ impl ContractTransactionBuilder {
             identity_data: None,
             wallet_data: None,
             validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         };
 
         let tx_hash = temp_tx.signing_hash();
@@ -276,6 +279,9 @@ impl ContractTransactionBuilder {
             identity_data: None,
             wallet_data: None,
             validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         };
 
         Ok(tx)

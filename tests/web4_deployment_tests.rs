@@ -438,7 +438,7 @@ async fn test_dns_resolution_flow() {
 
 #[tokio::test]
 async fn test_path_resolution_with_fallbacks() {
-    println!("\n🔗 Testing Path Resolution with Fallbacks\n");
+    println!("\n Testing Path Resolution with Fallbacks\n");
     
     // Create dummy hashes for testing
     let mut content_hashes = HashMap::new();
@@ -544,7 +544,7 @@ async fn test_directory_listing() {
 
 #[tokio::test]
 async fn test_content_update_flow() {
-    println!("\n🔄 Testing Content Update Flow\n");
+    println!("\n Testing Content Update Flow\n");
     
     let storage = MemoryStorage::default();
     let mut executor = ContractExecutor::new(storage);
@@ -938,7 +938,7 @@ fn test_dns_resolution_flow() {
 
 #[tokio::test]
 async fn test_path_resolution_with_fallbacks() {
-    println!("\n🔗 Testing Path Resolution with Fallbacks\n");
+    println!("\n Testing Path Resolution with Fallbacks\n");
     
     // Create dummy hashes for testing
     let mut content_hashes = HashMap::new();
@@ -1040,7 +1040,7 @@ async fn test_directory_listing() {
 
 #[test]
 fn test_content_update_flow() {
-    println!("\n🔄 Testing Content Update Flow\n");
+    println!("\n Testing Content Update Flow\n");
     
     let storage = MemoryStorage::default();
     let mut executor = ContractExecutor::new(storage);

@@ -395,6 +395,8 @@ impl EconomicTransactionProcessor {
                     created_at: economy_tx.timestamp,
                     registration_fee: 0, // System transactions are fee-free
                     dao_fee: 0,
+                    controlled_nodes: Vec::new(),
+                    owned_wallets: Vec::new(),
                 })
             },
             EconomyTransactionType::ProposalVote | EconomyTransactionType::ProposalExecution => {
@@ -412,6 +414,8 @@ impl EconomicTransactionProcessor {
                     created_at: economy_tx.timestamp,
                     registration_fee: 0,
                     dao_fee: economy_tx.dao_fee,
+                    controlled_nodes: Vec::new(),
+                    owned_wallets: Vec::new(),
                 })
             },
             _ => None, // Regular payments don't require identity verification
@@ -430,6 +434,9 @@ impl EconomicTransactionProcessor {
             identity_data,
             validator_data: None,
             wallet_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         })
     }
 
@@ -461,6 +468,9 @@ impl EconomicTransactionProcessor {
             identity_data: None,
             validator_data: None,
             wallet_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         };
 
         // Create signing hash

@@ -35,6 +35,80 @@ pub struct Transaction {
     /// Validator-specific data (only for validator transactions)
     /// This data is processed by lib-consensus package
     pub validator_data: Option<ValidatorTransactionData>,
+    /// DAO proposal data (only for DAO proposal transactions)
+    /// This data is processed by lib-consensus package
+    pub dao_proposal_data: Option<DaoProposalData>,
+    /// DAO vote data (only for DAO vote transactions)
+    /// This data is processed by lib-consensus package
+    pub dao_vote_data: Option<DaoVoteData>,
+    /// DAO execution data (only for DAO execution transactions)
+    /// This data is processed by lib-consensus package
+    pub dao_execution_data: Option<DaoExecutionData>,
+}
+
+/// DAO proposal transaction data (processed by lib-consensus package)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaoProposalData {
+    /// Unique proposal identifier
+    pub proposal_id: Hash,
+    /// Identity ID of proposer
+    pub proposer: String,
+    /// Proposal title
+    pub title: String,
+    /// Detailed description
+    pub description: String,
+    /// Type of proposal (from lib-consensus DaoProposalType)
+    pub proposal_type: String,
+    /// Voting period in blocks
+    pub voting_period_blocks: u64,
+    /// Quorum required (percentage 0-100)
+    pub quorum_required: u8,
+    /// Optional execution parameters (serialized)
+    pub execution_params: Option<Vec<u8>>,
+    /// Proposal creation timestamp
+    pub created_at: u64,
+    /// Block height at proposal creation
+    pub created_at_height: u64,
+}
+
+/// DAO vote transaction data (processed by lib-consensus package)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaoVoteData {
+    /// Unique vote identifier
+    pub vote_id: Hash,
+    /// Proposal being voted on
+    pub proposal_id: Hash,
+    /// Identity ID of voter
+    pub voter: String,
+    /// Vote choice (Yes/No/Abstain/Delegate as string)
+    pub vote_choice: String,
+    /// Voting power used
+    pub voting_power: u64,
+    /// Optional justification/reason
+    pub justification: Option<String>,
+    /// Vote timestamp
+    pub timestamp: u64,
+}
+
+/// DAO execution transaction data (processed by lib-consensus package)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaoExecutionData {
+    /// Proposal being executed
+    pub proposal_id: Hash,
+    /// Executor identity ID
+    pub executor: String,
+    /// Execution type (treasury spending, parameter change, etc.)
+    pub execution_type: String,
+    /// Recipient of funds (if treasury spending)
+    pub recipient: Option<String>,
+    /// Amount being transferred (if treasury spending)
+    pub amount: Option<u64>,
+    /// Execution timestamp
+    pub executed_at: u64,
+    /// Block height at execution
+    pub executed_at_height: u64,
+    /// Multi-sig signatures from approving validators
+    pub multisig_signatures: Vec<Vec<u8>>,
 }
 
 /// Transaction input referencing a previous output
@@ -82,6 +156,10 @@ pub struct IdentityTransactionData {
     pub registration_fee: u64,
     /// DAO fee contribution
     pub dao_fee: u64,
+    /// Node IDs controlled by this identity
+    pub controlled_nodes: Vec<String>,
+    /// Wallet IDs owned by this identity
+    pub owned_wallets: Vec<String>,
 }
 
 /// Wallet registration transaction data (processed by lib-identity package)
@@ -200,6 +278,9 @@ impl Transaction {
             identity_data: None,
             wallet_data: None,
             validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         }
     }
 
@@ -222,6 +303,9 @@ impl Transaction {
             identity_data: Some(identity_data),
             wallet_data: None,
             validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         }
     }
 
@@ -246,6 +330,9 @@ impl Transaction {
             identity_data: Some(identity_data),
             wallet_data: None,
             validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         }
     }
 
@@ -270,6 +357,8 @@ impl Transaction {
                 .as_secs(),
             registration_fee: 0,
             dao_fee: 0,
+            controlled_nodes: Vec::new(),
+            owned_wallets: Vec::new(),
         };
 
         Transaction {
@@ -284,6 +373,9 @@ impl Transaction {
             identity_data: Some(revocation_data),
             wallet_data: None,
             validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         }
     }
 
@@ -306,6 +398,9 @@ impl Transaction {
             identity_data: None,
             wallet_data: Some(wallet_data),
             validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         }
     }
 
@@ -328,6 +423,9 @@ impl Transaction {
             identity_data: None,
             wallet_data: None,
             validator_data: Some(validator_data),
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         }
     }
 
@@ -352,6 +450,9 @@ impl Transaction {
             identity_data: None,
             wallet_data: None,
             validator_data: Some(validator_data),
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
         }
     }
 
@@ -376,6 +477,90 @@ impl Transaction {
             identity_data: None,
             wallet_data: None,
             validator_data: Some(validator_data),
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
+        }
+    }
+
+    /// Create a new DAO proposal transaction
+    pub fn new_dao_proposal(
+        proposal_data: DaoProposalData,
+        inputs: Vec<TransactionInput>, // Authorization from proposer
+        outputs: Vec<TransactionOutput>,
+        fee: u64,
+        signature: Signature,
+        memo: Vec<u8>,
+    ) -> Self {
+        Transaction {
+            version: 1,
+            chain_id: 0x03, // Default to development network
+            transaction_type: TransactionType::DaoProposal,
+            inputs,
+            outputs,
+            fee,
+            signature,
+            memo,
+            identity_data: None,
+            wallet_data: None,
+            validator_data: None,
+            dao_proposal_data: Some(proposal_data),
+            dao_vote_data: None,
+            dao_execution_data: None,
+        }
+    }
+
+    /// Create a new DAO vote transaction
+    pub fn new_dao_vote(
+        vote_data: DaoVoteData,
+        inputs: Vec<TransactionInput>, // Authorization from voter
+        outputs: Vec<TransactionOutput>,
+        fee: u64,
+        signature: Signature,
+        memo: Vec<u8>,
+    ) -> Self {
+        Transaction {
+            version: 1,
+            chain_id: 0x03, // Default to development network
+            transaction_type: TransactionType::DaoVote,
+            inputs,
+            outputs,
+            fee,
+            signature,
+            memo,
+            identity_data: None,
+            wallet_data: None,
+            validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: Some(vote_data),
+            dao_execution_data: None,
+        }
+    }
+
+    /// Create a new DAO execution transaction
+    pub fn new_dao_execution(
+        execution_data: DaoExecutionData,
+        inputs: Vec<TransactionInput>, // Treasury UTXOs being spent
+        outputs: Vec<TransactionOutput>, // Recipient + change
+        fee: u64,
+        signature: Signature,
+        memo: Vec<u8>,
+    ) -> Self {
+        Transaction {
+            version: 1,
+            chain_id: 0x03, // Default to development network
+            transaction_type: TransactionType::DaoExecution,
+            inputs,
+            outputs,
+            fee,
+            signature,
+            memo,
+            identity_data: None,
+            wallet_data: None,
+            validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: Some(execution_data),
         }
     }
 
@@ -505,6 +690,53 @@ impl IdentityTransactionData {
                 .as_secs(),
             registration_fee,
             dao_fee,
+            controlled_nodes: Vec::new(),
+            owned_wallets: Vec::new(),
+        }
+    }
+
+    /// Create identity transaction data with node and wallet associations
+    pub fn new_with_associations(
+        did: String,
+        display_name: String,
+        public_key: Vec<u8>,
+        ownership_proof: Vec<u8>,
+        identity_type: String,
+        did_document_hash: Hash,
+        registration_fee: u64,
+        dao_fee: u64,
+        controlled_nodes: Vec<String>,
+        owned_wallets: Vec<String>,
+    ) -> Self {
+        Self {
+            did,
+            display_name,
+            public_key,
+            ownership_proof,
+            identity_type,
+            did_document_hash,
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            registration_fee,
+            dao_fee,
+            controlled_nodes,
+            owned_wallets,
+        }
+    }
+
+    /// Add a wallet to this identity's owned wallets
+    pub fn add_wallet(&mut self, wallet_id: String) {
+        if !self.owned_wallets.contains(&wallet_id) {
+            self.owned_wallets.push(wallet_id);
+        }
+    }
+
+    /// Add a node to this identity's controlled nodes
+    pub fn add_node(&mut self, node_id: String) {
+        if !self.controlled_nodes.contains(&node_id) {
+            self.controlled_nodes.push(node_id);
         }
     }
 

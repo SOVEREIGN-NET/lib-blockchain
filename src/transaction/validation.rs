@@ -139,6 +139,11 @@ impl TransactionValidator {
                     return Err(ValidationError::InvalidValidatorData);
                 }
             },
+            TransactionType::DaoProposal |
+            TransactionType::DaoVote |
+            TransactionType::DaoExecution => {
+                // DAO transactions - validation handled at consensus layer
+            }
         }
 
         // Signature validation (always required)
@@ -209,6 +214,11 @@ impl TransactionValidator {
                     return Err(ValidationError::InvalidValidatorData);
                 }
             },
+            TransactionType::DaoProposal |
+            TransactionType::DaoVote |
+            TransactionType::DaoExecution => {
+                // DAO transactions - validation handled at consensus layer
+            }
         }
 
         // Signature validation (always required)
@@ -464,7 +474,8 @@ impl TransactionValidator {
         if let Some(plonky2_proof) = &input.zk_proof.nullifier_proof.plonky2_proof {
             // Use Plonky2 verification if available
             if let Ok(zk_system) = lib_proofs::ZkProofSystem::new() {
-                match zk_system.verify_range(plonky2_proof) {
+                // FIX: Nullifier proof is generated with prove_transaction, so use verify_transaction
+                match zk_system.verify_transaction(plonky2_proof) {
                     Ok(is_valid) => {
                         if !is_valid {
                             return Err(ValidationError::InvalidZkProof);
@@ -788,6 +799,11 @@ impl<'a> StatefulTransactionValidator<'a> {
                 // Validator transactions - validate with stateless validator
                 stateless_validator.validate_transaction(transaction)?;
             },
+            TransactionType::DaoProposal |
+            TransactionType::DaoVote |
+            TransactionType::DaoExecution => {
+                // DAO transactions - validation handled at consensus layer
+            }
         }
 
         //  CRITICAL FIX: Verify sender identity exists on blockchain
@@ -833,38 +849,122 @@ impl<'a> StatefulTransactionValidator<'a> {
             return Err(ValidationError::InvalidSignature);
         }
 
-        // Search through all registered identities to find one with matching public key
-        let mut identity_found = false;
-        for (did, identity_data) in blockchain.get_all_identities() {
-            if identity_data.public_key == sender_public_key {
-                // Check if identity is not revoked
-                if identity_data.identity_type == "revoked" {
-                    tracing::error!("SECURITY: Transaction from revoked identity: {}", did);
-                    return Err(ValidationError::InvalidTransaction);
+        // CORRECT APPROACH: Lookup wallet by public key, then verify owner identity
+        // Step 1: Find wallet with matching public key
+        let mut owner_did: Option<String> = None;
+        
+        tracing::info!(" VALIDATION DEBUG: Searching for wallet with sender public key");
+        tracing::info!("   Sender public key length: {} bytes", sender_public_key.len());
+        tracing::info!("   Sender public key (first 16): {}", hex::encode(&sender_public_key[..16.min(sender_public_key.len())]));
+        tracing::info!("   Total wallets to check: {}", blockchain.get_all_wallets().len());
+        
+        for (wallet_id, wallet_data) in blockchain.get_all_wallets() {
+            tracing::info!("   Checking wallet {}: stored public_key length = {}, first 16 = {}", 
+                wallet_id, 
+                wallet_data.public_key.len(),
+                hex::encode(&wallet_data.public_key[..16.min(wallet_data.public_key.len())]));
+            
+            // Debug: Show both keys fully
+            tracing::info!("    WALLET public_key (first 64): {}", hex::encode(&wallet_data.public_key[..64.min(wallet_data.public_key.len())]));
+            tracing::info!("    SENDER public_key (first 64): {}", hex::encode(&sender_public_key[..64.min(sender_public_key.len())]));
+            
+            // Debug: Compare byte by byte
+            tracing::info!("    Comparing {} wallet bytes vs {} sender bytes", wallet_data.public_key.len(), sender_public_key.len());
+            
+            // CRITICAL FIX: wallet_data.public_key is Vec<u8>, sender_public_key is &[u8]
+            // We need to compare as slices, not Vec vs slice
+            let keys_match = wallet_data.public_key.as_slice() == sender_public_key;
+            tracing::info!("    Direct comparison result: {}", keys_match);
+            
+            if !keys_match && wallet_data.public_key.len() == sender_public_key.len() {
+                // Find first differing byte (show up to 5 differences)
+                let mut diff_count = 0;
+                for i in 0..wallet_data.public_key.len() {
+                    if wallet_data.public_key[i] != sender_public_key[i] {
+                        tracing::error!("    MISMATCH at byte {}: wallet={:02x} vs sender={:02x}", 
+                            i, wallet_data.public_key[i], sender_public_key[i]);
+                        diff_count += 1;
+                        if diff_count >= 5 {
+                            tracing::error!("   ... (showing first 5 differences only)");
+                            break;
+                        }
+                    }
                 }
+                if diff_count == 0 {
+                    tracing::error!("     WEIRD: Comparison failed but no byte differences found! Check Vec vs slice comparison");
+                }
+            }
+            
+            // Compare wallet public key directly
+            if keys_match {
+                tracing::info!("    PUBLIC KEY MATCH FOUND for wallet: {}", wallet_id);
+                tracing::info!("   Wallet owner_identity_id: {:?}", wallet_data.owner_identity_id);
                 
-                tracing::info!("SECURITY: Sender identity verified: {} ({})", 
-                    identity_data.display_name, did);
-                identity_found = true;
-                break;
+                // Get owner DID from owner_identity_id
+                if let Some(owner_identity_hash) = &wallet_data.owner_identity_id {
+                    // Find the DID string from identity registry using the identity hash
+                    // Convert the owner_identity_hash to hex string to match against DID format
+                    let owner_id_hex = hex::encode(owner_identity_hash.as_bytes());
+                    
+                    for (did, identity_data) in blockchain.get_all_identities() {
+                        // Extract the hex part from the DID (format: did:zhtp:HEX)
+                        let did_hex = if did.starts_with("did:zhtp:") {
+                            &did[9..] // Skip "did:zhtp:" prefix
+                        } else {
+                            did.as_str()
+                        };
+                        
+                        // Check if this identity's ID matches the wallet's owner_identity_id
+                        if did_hex == owner_id_hex {
+                            owner_did = Some(did.clone());
+                            tracing::info!("Found wallet {} owned by identity: {}", wallet_id, did);
+                            break;
+                        }
+                    }
+                    break;
+                }
             }
         }
 
-        if !identity_found {
-            tracing::error!("SECURITY CRITICAL: Transaction from unregistered identity!");
-            tracing::error!("Public key: {:02x?}", sender_public_key);
-            tracing::error!("This transaction should be REJECTED - sender identity does not exist on blockchain");
-            
-            // Log all registered identities for debugging
-            tracing::info!("DEBUG: Currently registered identities:");
+        // Step 2: If no wallet found, check if sender is directly an identity (backward compatibility)
+        if owner_did.is_none() {
             for (did, identity_data) in blockchain.get_all_identities() {
-                tracing::info!("   - {} ({}): {:02x?}", 
-                    identity_data.display_name, 
-                    did, 
-                    &identity_data.public_key[..std::cmp::min(16, identity_data.public_key.len())]);
+                if identity_data.public_key == sender_public_key {
+                    owner_did = Some(did.clone());
+                    tracing::info!("Sender is direct identity: {}", did);
+                    break;
+                }
             }
-            
-            return Err(ValidationError::UnregisteredSender);
+        }
+
+        // Step 3: Verify owner identity exists and is not revoked
+        match owner_did {
+            Some(did) => {
+                if let Some(identity_data) = blockchain.get_all_identities().iter()
+                    .find(|(id, _)| **id == did)
+                    .map(|(_, data)| data) {
+                    
+                    if identity_data.identity_type == "revoked" {
+                        tracing::error!("SECURITY: Transaction from revoked identity: {}", did);
+                        return Err(ValidationError::InvalidTransaction);
+                    }
+                    
+                    tracing::info!(" SECURITY: Sender identity verified: {} ({})", 
+                        identity_data.display_name, did);
+                    return Ok(());
+                }
+                
+                tracing::error!("SECURITY: Owner DID {} exists but identity not found!", did);
+                return Err(ValidationError::UnregisteredSender);
+            },
+            None => {
+                tracing::error!("SECURITY CRITICAL: Transaction from unregistered wallet/identity!");
+                tracing::error!("Public key: {:02x?}", &sender_public_key[..std::cmp::min(16, sender_public_key.len())]);
+                tracing::error!(" REJECTED: All transactions must come from registered wallets/identities");
+                
+                // NO BYPASS: Always reject transactions from unregistered senders
+                return Err(ValidationError::UnregisteredSender);
+            }
         }
 
         Ok(())
@@ -917,6 +1017,9 @@ pub mod utils {
                 // Validator transactions should have validator_data
                 transaction.validator_data.is_some()
             }
+            TransactionType::DaoProposal => transaction.dao_proposal_data.is_some(),
+            TransactionType::DaoVote => transaction.dao_vote_data.is_some(),
+            TransactionType::DaoExecution => transaction.dao_execution_data.is_some(),
         }
     }
 

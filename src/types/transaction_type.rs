@@ -36,6 +36,12 @@ pub enum TransactionType {
     ValidatorUpdate,
     /// Validator unregistration/exit from consensus
     ValidatorUnregister,
+    /// DAO governance proposal submission
+    DaoProposal,
+    /// DAO governance vote on a proposal
+    DaoVote,
+    /// DAO proposal execution (treasury spending)
+    DaoExecution,
 }
 
 impl TransactionType {
@@ -70,6 +76,15 @@ impl TransactionType {
         )
     }
 
+    /// Check if this transaction type relates to DAO governance
+    pub fn is_dao_transaction(&self) -> bool {
+        matches!(self,
+            TransactionType::DaoProposal |
+            TransactionType::DaoVote |
+            TransactionType::DaoExecution
+        )
+    }
+
     /// Get a human-readable description of the transaction type
     pub fn description(&self) -> &'static str {
         match self {
@@ -87,6 +102,9 @@ impl TransactionType {
             TransactionType::ValidatorRegistration => "Validator registration for consensus",
             TransactionType::ValidatorUpdate => "Validator information update",
             TransactionType::ValidatorUnregister => "Validator unregistration/exit",
+            TransactionType::DaoProposal => "DAO governance proposal submission",
+            TransactionType::DaoVote => "DAO governance vote on proposal",
+            TransactionType::DaoExecution => "DAO proposal execution (treasury spending)",
         }
     }
 
@@ -107,6 +125,9 @@ impl TransactionType {
             TransactionType::ValidatorRegistration => "validator_registration",
             TransactionType::ValidatorUpdate => "validator_update",
             TransactionType::ValidatorUnregister => "validator_unregister",
+            TransactionType::DaoProposal => "dao_proposal",
+            TransactionType::DaoVote => "dao_vote",
+            TransactionType::DaoExecution => "dao_execution",
         }
     }
 
@@ -127,6 +148,9 @@ impl TransactionType {
             "validator_registration" => Some(TransactionType::ValidatorRegistration),
             "validator_update" => Some(TransactionType::ValidatorUpdate),
             "validator_unregister" => Some(TransactionType::ValidatorUnregister),
+            "dao_proposal" => Some(TransactionType::DaoProposal),
+            "dao_vote" => Some(TransactionType::DaoVote),
+            "dao_execution" => Some(TransactionType::DaoExecution),
             _ => None,
         }
     }

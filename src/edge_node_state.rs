@@ -58,7 +58,7 @@ impl EdgeNodeState {
     /// Create a new edge node state
     /// Recommended: max_headers = 500 for security/finality (~100 KB storage)
     pub fn new(max_headers: usize) -> Self {
-        info!("🚀 Initializing edge node state with {} header capacity", max_headers);
+        info!(" Initializing edge node state with {} header capacity", max_headers);
         Self {
             headers: VecDeque::new(),
             max_headers,
@@ -73,7 +73,7 @@ impl EdgeNodeState {
         if !self.my_addresses.contains(&address) {
             let addr_hex = hex::encode(&address[..8.min(address.len())]);
             self.my_addresses.push(address);
-            info!("📝 Added address to edge node tracking: {}", addr_hex);
+            info!(" Added address to edge node tracking: {}", addr_hex);
         }
     }
 
@@ -94,7 +94,7 @@ impl EdgeNodeState {
         self.my_utxos.insert(utxo_key, output.clone());
 
         // Note: Amount is encrypted in the commitment - not tracked on edge node
-        info!("✅ Added UTXO: txid={}, index={}, commitment={}",
+        info!(" Added UTXO: txid={}, index={}, commitment={}",
             hex::encode(&tx_hash.as_bytes()[..8]),
             output_index,
             hex::encode(&output.commitment.as_bytes()[..8]));
@@ -104,7 +104,7 @@ impl EdgeNodeState {
     pub fn remove_utxo(&mut self, tx_hash: &Hash, output_index: u32) -> bool {
         let utxo_key = UtxoKey { tx_hash: *tx_hash, output_index };
         if let Some(_output) = self.my_utxos.remove(&utxo_key) {
-            info!("✅ Removed UTXO: txid={}, index={}",
+            info!(" Removed UTXO: txid={}, index={}",
                 hex::encode(&tx_hash.as_bytes()[..8]),
                 output_index);
             true
@@ -131,7 +131,7 @@ impl EdgeNodeState {
             }
         }
 
-        info!("📦 Added header: height={}, hash={}, headers_count={}",
+        info!(" Added header: height={}, hash={}, headers_count={}",
             header.height,
             hex::encode(&header.block_hash.as_bytes()[..8]),
             self.headers.len());
@@ -183,7 +183,7 @@ impl EdgeNodeState {
         }
 
         // 4. Return verified payment details (amount encrypted in commitment)
-        info!("✅ Payment verified: commitment={} to my address", 
+        info!(" Payment verified: commitment={} to my address", 
             hex::encode(&output.commitment.as_bytes()[..8]));
 
         Ok(VerifiedPayment {
@@ -319,7 +319,7 @@ impl EdgeNodeState {
             }
         }
 
-        info!("🔄 Processed block {}: {} UTXOs tracked", header.height, self.my_utxos.len());
+        info!(" Processed block {}: {} UTXOs tracked", header.height, self.my_utxos.len());
     }
 
     /// Get header statistics

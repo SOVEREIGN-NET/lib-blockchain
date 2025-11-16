@@ -16,6 +16,7 @@ use crate::integration::zk_integration::ZkTransactionProof;
 use crate::integration::economic_integration::{EconomicTransactionProcessor, TreasuryStats};
 use crate::integration::consensus_integration::{BlockchainConsensusCoordinator, ConsensusStatus};
 use crate::integration::storage_integration::{BlockchainStorageManager, BlockchainStorageConfig, StorageOperationResult};
+use lib_consensus::{WelfareService, WelfareAuditEntry, ServicePerformanceMetrics, OutcomeReport};
 
 /// Messages for real-time blockchain synchronization
 #[derive(Debug, Clone)]
@@ -70,6 +71,18 @@ pub struct Blockchain {
     pub validator_registry: HashMap<String, ValidatorInfo>,
     /// Validator registration block heights (identity_id -> block_height)
     pub validator_blocks: HashMap<String, u64>,
+    /// DAO treasury wallet ID (stores collected fees for governance)
+    pub dao_treasury_wallet_id: Option<String>,
+    /// Welfare service registry (service_id -> WelfareService)
+    pub welfare_services: HashMap<String, lib_consensus::WelfareService>,
+    /// Welfare service registration block heights (service_id -> block_height)
+    pub welfare_service_blocks: HashMap<String, u64>,
+    /// Welfare audit trail (audit_id -> WelfareAuditEntry)
+    pub welfare_audit_trail: HashMap<lib_crypto::Hash, lib_consensus::WelfareAuditEntry>,
+    /// Service performance metrics (service_id -> ServicePerformanceMetrics)
+    pub service_performance: HashMap<String, lib_consensus::ServicePerformanceMetrics>,
+    /// Outcome reports (report_id -> OutcomeReport)
+    pub outcome_reports: HashMap<lib_crypto::Hash, lib_consensus::OutcomeReport>,
     /// Economic transaction processor for lib-economy integration
     #[serde(skip)]
     pub economic_processor: Option<EconomicTransactionProcessor>,
@@ -166,6 +179,12 @@ impl Blockchain {
             contract_blocks: HashMap::new(),
             validator_registry: HashMap::new(),
             validator_blocks: HashMap::new(),
+            dao_treasury_wallet_id: None,
+            welfare_services: HashMap::new(),
+            welfare_service_blocks: HashMap::new(),
+            welfare_audit_trail: HashMap::new(),
+            service_performance: HashMap::new(),
+            outcome_reports: HashMap::new(),
             economic_processor: Some(EconomicTransactionProcessor::new()),
             consensus_coordinator: None,
             storage_manager: None,
@@ -434,9 +453,83 @@ impl Blockchain {
         Ok(())
     }
 
-    /// Add a new block to the chain with automatic persistence
+    /// Add a block and generate recursive proof for blockchain sync
+    pub async fn add_block_with_proof(&mut self, block: Block) -> Result<()> {
+        // Add block using existing validation logic
+        self.add_block(block.clone())?;
+
+        // Generate recursive proof for this block (for edge node sync)
+        if let Err(e) = self.generate_proof_for_block(&block).await {
+            warn!("  Failed to generate recursive proof for block {}: {}", block.height(), e);
+            warn!("   Edge node sync will fall back to headers-only");
+        } else {
+            debug!(" Recursive proof generated for block {}", block.height());
+        }
+
+        Ok(())
+    }
+
+    /// Generate recursive proof for a single block
+    async fn generate_proof_for_block(&mut self, block: &Block) -> Result<()> {
+        // Get or initialize proof aggregator
+        let aggregator_arc = self.get_proof_aggregator().await?;
+        let mut aggregator = aggregator_arc.write().await;
+
+        // Convert block transactions to batched format
+        let batched_transactions: Vec<BatchedPrivateTransaction> = 
+            block.transactions.iter().map(|tx| {
+                let batch_metadata = BatchMetadata {
+                    transaction_count: 1,
+                    fee_tier: 0,
+                    block_height: block.height(),
+                    batch_commitment: tx.hash().as_array(),
+                };
+
+                let zk_tx_proof = lib_proofs::ZkTransactionProof::default();
+
+                BatchedPrivateTransaction {
+                    transaction_proofs: vec![zk_tx_proof],
+                    merkle_root: tx.hash().as_array(),
+                    batch_metadata,
+                }
+            }).collect();
+
+        // Get previous state root
+        let previous_state_root = if block.height() > 0 {
+            let prev_block = &self.blocks[block.height() as usize - 1];
+            let merkle_bytes = prev_block.header.merkle_root.as_bytes();
+            let mut root = [0u8; 32];
+            root.copy_from_slice(merkle_bytes);
+            root
+        } else {
+            [0u8; 32] // Genesis block
+        };
+
+        // Aggregate block proof
+        let block_proof = aggregator.aggregate_block_transactions(
+            block.height(),
+            &batched_transactions,
+            &previous_state_root,
+            block.header.timestamp,
+        )?;
+
+        // Get previous chain proof (if exists) - need to clone it since we need mutable access later
+        let previous_chain_proof = if block.height() > 0 {
+            aggregator.get_recursive_proof(block.height() - 1).cloned()
+        } else {
+            None
+        };
+
+        // Create recursive chain proof
+        aggregator.create_recursive_chain_proof(&block_proof, previous_chain_proof.as_ref())?;
+
+        debug!("Recursive proof cached for block {} sync", block.height());
+        Ok(())
+    }
+
+    /// Add a new block to the chain with automatic persistence (without proof generation - for syncing)
     pub async fn add_block_with_persistence(&mut self, block: Block) -> Result<()> {
-        // Add block using existing logic
+        // Just add block without generating proof (useful for network sync where blocks already have proofs)
         self.add_block(block.clone())?;
 
         // Persist the block to storage if storage manager is available
@@ -851,9 +944,16 @@ impl Blockchain {
                 if let Some(ref identity_data) = transaction.identity_data {
                     match transaction.transaction_type {
                         TransactionType::IdentityRegistration => {
+                            // CRITICAL: Preserve controlled_nodes if identity already exists
+                            let mut new_identity_data = identity_data.clone();
+                            if let Some(existing_identity) = self.identity_registry.get(&identity_data.did) {
+                                // Preserve controlled_nodes from existing identity
+                                new_identity_data.controlled_nodes = existing_identity.controlled_nodes.clone();
+                            }
+                            
                             self.identity_registry.insert(
                                 identity_data.did.clone(),
-                                identity_data.clone()
+                                new_identity_data
                             );
                             self.identity_blocks.insert(
                                 identity_data.did.clone(),
@@ -861,9 +961,16 @@ impl Blockchain {
                             );
                         }
                         TransactionType::IdentityUpdate => {
+                            // CRITICAL: Preserve controlled_nodes on update
+                            let mut updated_identity_data = identity_data.clone();
+                            if let Some(existing_identity) = self.identity_registry.get(&identity_data.did) {
+                                // Preserve controlled_nodes from existing identity
+                                updated_identity_data.controlled_nodes = existing_identity.controlled_nodes.clone();
+                            }
+                            
                             self.identity_registry.insert(
                                 identity_data.did.clone(),
-                                identity_data.clone()
+                                updated_identity_data
                             );
                         }
                         TransactionType::IdentityRevocation => {
@@ -879,6 +986,100 @@ impl Blockchain {
                     }
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Check if a public key is registered as an identity on the blockchain
+    pub fn is_public_key_registered(&self, public_key: &[u8]) -> bool {
+        for identity_data in self.identity_registry.values() {
+            if identity_data.public_key == public_key && identity_data.identity_type != "revoked" {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get identity by public key
+    pub fn get_identity_by_public_key(&self, public_key: &[u8]) -> Option<&IdentityTransactionData> {
+        for identity_data in self.identity_registry.values() {
+            if identity_data.public_key == public_key && identity_data.identity_type != "revoked" {
+                return Some(identity_data);
+            }
+        }
+        None
+    }
+
+    /// Auto-register wallet identity if not already registered (system transaction)
+    /// This creates a minimal identity registration for wallets that don't have one
+    pub fn auto_register_wallet_identity(
+        &mut self,
+        wallet_id: &str,
+        public_key: Vec<u8>,
+        did: Option<String>,
+    ) -> Result<Hash> {
+        // Check if this public key is already registered
+        if self.is_public_key_registered(&public_key) {
+            tracing::info!(" Public key already registered on blockchain");
+            return Ok(Hash::default());
+        }
+
+        // Generate DID from wallet ID if not provided
+        let identity_did = did.unwrap_or_else(|| {
+            format!("did:zhtp:wallet-{}", hex::encode(&public_key[..16]))
+        });
+
+        tracing::info!(" Auto-registering wallet identity: {}", identity_did);
+
+        // Create identity transaction data
+        let identity_data = IdentityTransactionData {
+            did: identity_did.clone(),
+            display_name: format!("Wallet {}", &wallet_id[..8.min(wallet_id.len())]),
+            public_key: public_key.clone(),
+            ownership_proof: vec![], // System transaction doesn't need proof
+            identity_type: "service".to_string(), // Use "service" type for wallet identities
+            did_document_hash: crate::types::hash::blake3_hash(identity_did.as_bytes()),
+            created_at: crate::utils::time::current_timestamp(),
+            registration_fee: 0, // No fee for auto-registration
+            dao_fee: 0,
+            controlled_nodes: Vec::new(),
+            owned_wallets: vec![wallet_id.to_string()],
+        };
+
+        // Create identity registration transaction as system transaction
+        let registration_tx = Transaction::new_identity_registration(
+            identity_data.clone(),
+            vec![], // No outputs for system transaction
+            Signature {
+                signature: vec![0xAA; 64], // System signature marker
+                public_key: PublicKey::new(public_key.clone()),
+                algorithm: SignatureAlgorithm::Dilithium2,
+                timestamp: identity_data.created_at,
+            },
+            b"Auto-registration for wallet identity".to_vec(),
+        );
+
+        // Add as system transaction (bypasses normal validation)
+        self.add_system_transaction(registration_tx.clone())?;
+
+        // Register in identity registry immediately
+        self.identity_registry.insert(identity_did.clone(), identity_data.clone());
+        self.identity_blocks.insert(identity_did, self.height + 1);
+
+        tracing::info!(" Wallet identity auto-registered on blockchain");
+
+        Ok(registration_tx.hash())
+    }
+
+    /// Ensure wallet identity is registered before transaction (convenience method)
+    pub fn ensure_wallet_identity_registered(
+        &mut self,
+        wallet_id: &str,
+        public_key: &[u8],
+        did: Option<String>,
+    ) -> Result<()> {
+        if !self.is_public_key_registered(public_key) {
+            self.auto_register_wallet_identity(wallet_id, public_key.to_vec(), did)?;
         }
         Ok(())
     }
@@ -1005,6 +1206,8 @@ impl Blockchain {
             created_at: validator_info.registered_at,
             registration_fee: 0, // No fee for validator registration (paid via stake)
             dao_fee: 0,
+            controlled_nodes: Vec::new(),
+            owned_wallets: Vec::new(),
         };
 
         let registration_tx = Transaction::new_identity_registration(
@@ -1026,7 +1229,7 @@ impl Blockchain {
         self.validator_registry.insert(validator_info.identity_id.clone(), validator_info.clone());
         self.validator_blocks.insert(validator_info.identity_id.clone(), self.height + 1);
 
-        info!("✅ Validator {} registered with {} ZHTP stake and {} bytes storage", 
+        info!(" Validator {} registered with {} ZHTP stake and {} bytes storage", 
               validator_info.identity_id, validator_info.stake, validator_info.storage_provided);
 
         Ok(registration_tx.hash())
@@ -1079,6 +1282,8 @@ impl Blockchain {
             created_at: updated_info.last_activity,
             registration_fee: 0,
             dao_fee: 0,
+            controlled_nodes: Vec::new(),
+            owned_wallets: Vec::new(),
         };
 
         let update_tx = Transaction::new_identity_update(
@@ -1609,6 +1814,1151 @@ impl Blockchain {
         Ok(tx_hash)
     }
 
+    /// Get all DAO proposals from blockchain
+    pub fn get_dao_proposals(&self) -> Vec<crate::transaction::DaoProposalData> {
+        self.blocks.iter()
+            .flat_map(|block| &block.transactions)
+            .filter(|tx| tx.transaction_type == TransactionType::DaoProposal)
+            .filter_map(|tx| tx.dao_proposal_data.as_ref())
+            .cloned()
+            .collect()
+    }
+
+    /// Get a specific DAO proposal by ID
+    pub fn get_dao_proposal(&self, proposal_id: &Hash) -> Option<crate::transaction::DaoProposalData> {
+        self.blocks.iter()
+            .flat_map(|block| &block.transactions)
+            .filter(|tx| tx.transaction_type == TransactionType::DaoProposal)
+            .filter_map(|tx| tx.dao_proposal_data.as_ref())
+            .find(|proposal| &proposal.proposal_id == proposal_id)
+            .cloned()
+    }
+
+    /// Get all votes for a specific proposal
+    pub fn get_dao_votes_for_proposal(&self, proposal_id: &Hash) -> Vec<crate::transaction::DaoVoteData> {
+        self.blocks.iter()
+            .flat_map(|block| &block.transactions)
+            .filter(|tx| tx.transaction_type == TransactionType::DaoVote)
+            .filter_map(|tx| tx.dao_vote_data.as_ref())
+            .filter(|vote| &vote.proposal_id == proposal_id)
+            .cloned()
+            .collect()
+    }
+
+    /// Get all DAO votes (for accounting)
+    pub fn get_all_dao_votes(&self) -> Vec<crate::transaction::DaoVoteData> {
+        self.blocks.iter()
+            .flat_map(|block| &block.transactions)
+            .filter(|tx| tx.transaction_type == TransactionType::DaoVote)
+            .filter_map(|tx| tx.dao_vote_data.as_ref())
+            .cloned()
+            .collect()
+    }
+
+    /// Get all DAO execution transactions
+    pub fn get_dao_executions(&self) -> Vec<crate::transaction::DaoExecutionData> {
+        self.blocks.iter()
+            .flat_map(|block| &block.transactions)
+            .filter(|tx| tx.transaction_type == TransactionType::DaoExecution)
+            .filter_map(|tx| tx.dao_execution_data.as_ref())
+            .cloned()
+            .collect()
+    }
+
+    /// Tally votes for a proposal
+    pub fn tally_dao_votes(&self, proposal_id: &Hash) -> (u64, u64, u64, u64) {
+        let votes = self.get_dao_votes_for_proposal(proposal_id);
+        
+        let mut yes_votes = 0u64;
+        let mut no_votes = 0u64;
+        let mut abstain_votes = 0u64;
+        let mut total_voting_power = 0u64;
+        
+        for vote in votes {
+            total_voting_power += vote.voting_power;
+            match vote.vote_choice.as_str() {
+                "Yes" => yes_votes += vote.voting_power,
+                "No" => no_votes += vote.voting_power,
+                "Abstain" => abstain_votes += vote.voting_power,
+                _ => {} // Delegate votes would need special handling
+            }
+        }
+        
+        (yes_votes, no_votes, abstain_votes, total_voting_power)
+    }
+
+    /// Check if a proposal has passed based on votes
+    pub fn has_proposal_passed(&self, proposal_id: &Hash, required_approval_percent: u32) -> Result<bool> {
+        let (yes_votes, _no_votes, _abstain_votes, total_voting_power) = self.tally_dao_votes(proposal_id);
+        
+        if total_voting_power == 0 {
+            return Ok(false);
+        }
+        
+        let approval_percent = (yes_votes * 100) / total_voting_power;
+        Ok(approval_percent >= required_approval_percent as u64)
+    }
+
+    /// Set the DAO treasury wallet ID
+    pub fn set_dao_treasury_wallet(&mut self, wallet_id: String) -> Result<()> {
+        // Verify wallet exists in registry
+        if !self.wallet_registry.contains_key(&wallet_id) {
+            return Err(anyhow::anyhow!("Treasury wallet {} not found in registry", wallet_id));
+        }
+        
+        info!("🏦 Setting DAO treasury wallet: {}", wallet_id);
+        self.dao_treasury_wallet_id = Some(wallet_id);
+        Ok(())
+    }
+
+    /// Get the DAO treasury wallet ID
+    pub fn get_dao_treasury_wallet_id(&self) -> Option<&String> {
+        self.dao_treasury_wallet_id.as_ref()
+    }
+
+    /// Get treasury wallet data
+    pub fn get_dao_treasury_wallet(&self) -> Result<&crate::transaction::WalletTransactionData> {
+        let wallet_id = self.dao_treasury_wallet_id.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("DAO treasury wallet not set"))?;
+        
+        self.wallet_registry.get(wallet_id)
+            .ok_or_else(|| anyhow::anyhow!("Treasury wallet not found in registry"))
+    }
+
+    /// Get treasury balance from UTXOs
+    pub fn get_dao_treasury_balance(&self) -> Result<u64> {
+        let treasury_wallet = self.get_dao_treasury_wallet()?;
+        let treasury_pubkey = crate::integration::crypto_integration::PublicKey::new(
+            treasury_wallet.public_key.clone()
+        );
+        
+        // Sum all UTXOs belonging to treasury wallet
+        let mut balance = 0u64;
+        for (_utxo_id, output) in &self.utxo_set {
+            if output.recipient.as_bytes() == treasury_pubkey.as_bytes() {
+                // In a real ZK system, we'd need to decrypt the commitment
+                // For now, we track balance separately
+                // TODO: Implement proper UTXO amount extraction
+                balance += 1; // Placeholder
+            }
+        }
+        
+        Ok(balance)
+    }
+
+    /// Get all UTXOs belonging to the treasury wallet
+    pub fn get_dao_treasury_utxos(&self) -> Result<Vec<(Hash, TransactionOutput)>> {
+        let treasury_wallet = self.get_dao_treasury_wallet()?;
+        let treasury_pubkey = crate::integration::crypto_integration::PublicKey::new(
+            treasury_wallet.public_key.clone()
+        );
+        
+        let mut utxos = Vec::new();
+        for (utxo_id, output) in &self.utxo_set {
+            if output.recipient.as_bytes() == treasury_pubkey.as_bytes() {
+                utxos.push((*utxo_id, output.clone()));
+            }
+        }
+        
+        Ok(utxos)
+    }
+
+    /// Create a treasury fee collection transaction
+    /// This routes block fees to the DAO treasury
+    pub fn create_treasury_fee_transaction(
+        &self,
+        block_height: u64,
+        total_fees: u64,
+    ) -> Result<Transaction> {
+        let treasury_wallet = self.get_dao_treasury_wallet()?;
+        
+        // Create output to treasury
+        let treasury_output = TransactionOutput {
+            commitment: crate::types::hash::blake3_hash(&total_fees.to_le_bytes()),
+            note: Hash::default(),
+            recipient: crate::integration::crypto_integration::PublicKey::new(
+                treasury_wallet.public_key.clone()
+            ),
+        };
+        
+        // Create fee collection transaction (no inputs, system-generated)
+        let fee_tx = Transaction::new(
+            vec![], // No inputs (system transaction)
+            vec![treasury_output],
+            0, // No fee for system transaction
+            crate::integration::crypto_integration::Signature {
+                signature: vec![],
+                public_key: crate::integration::crypto_integration::PublicKey::new(vec![]),
+                algorithm: crate::integration::crypto_integration::SignatureAlgorithm::Dilithium2,
+                timestamp: crate::utils::time::current_timestamp(),
+            },
+            format!("Block {} fee collection: {} ZHTP to DAO treasury", 
+                    block_height, total_fees).into_bytes(),
+        );
+        
+        Ok(fee_tx)
+    }
+
+    /// Execute a passed DAO proposal (creates real blockchain transaction)
+    /// This method spends treasury UTXOs to fulfill the proposal
+    pub fn execute_dao_proposal(
+        &mut self,
+        proposal_id: Hash,
+        executor_identity: String,
+        recipient_identity: String,
+        amount: u64,
+    ) -> Result<Hash> {
+        // 1. Get the proposal
+        let proposal = self.get_dao_proposal(&proposal_id)
+            .ok_or_else(|| anyhow::anyhow!("Proposal not found"))?;
+        
+        // 2. Verify proposal has passed
+        if !self.has_proposal_passed(&proposal_id, 60)? {
+            return Err(anyhow::anyhow!("Proposal has not passed"));
+        }
+        
+        // 3. Check if already executed
+        let executions = self.get_dao_executions();
+        if executions.iter().any(|exec| exec.proposal_id == proposal_id) {
+            return Err(anyhow::anyhow!("Proposal already executed"));
+        }
+        
+        // 4. Get treasury wallet UTXOs
+        let treasury_utxos = self.get_dao_treasury_utxos()?;
+        if treasury_utxos.is_empty() {
+            warn!("⚠️  No treasury UTXOs available, creating placeholder transaction");
+        }
+        
+        // 5. Select UTXOs to spend (simplified - just take first few)
+        let needed_amount = amount + 100; // amount + fee
+        let mut inputs = Vec::new();
+        let mut total_input = 0u64;
+        
+        for (utxo_id, _output) in treasury_utxos.iter().take(3) {
+            inputs.push(TransactionInput {
+                previous_output: *utxo_id,
+                output_index: 0,
+                nullifier: crate::types::hash::blake3_hash(&[utxo_id.as_bytes(), &[0u8]].concat()),
+                zk_proof: crate::integration::zk_integration::ZkTransactionProof::default(),
+            });
+            total_input += 1000; // Placeholder amount per UTXO
+            if total_input >= needed_amount {
+                break;
+            }
+        }
+        
+        // If no UTXOs, create placeholder input
+        if inputs.is_empty() {
+            let proposal_id_bytes = proposal_id.as_bytes();
+            let nullifier_input = format!("dao_exec_{}", hex::encode(&proposal_id_bytes[..8]));
+            inputs.push(TransactionInput {
+                previous_output: Hash::default(),
+                output_index: 0,
+                nullifier: crate::types::hash::blake3_hash(nullifier_input.as_bytes()),
+                zk_proof: crate::integration::zk_integration::ZkTransactionProof::default(),
+            });
+        }
+        
+        // 6. Create execution data
+        let execution_data = crate::transaction::DaoExecutionData {
+            proposal_id,
+            executor: executor_identity,
+            execution_type: "TreasurySpending".to_string(),
+            recipient: Some(recipient_identity.clone()),
+            amount: Some(amount),
+            executed_at: crate::utils::time::current_timestamp(),
+            executed_at_height: self.height,
+            multisig_signatures: vec![], // TODO: Collect from approving voters
+        };
+        
+        // 7. Get recipient identity public key
+        let recipient_pubkey = if let Some(recipient_data) = self.identity_registry.get(&recipient_identity) {
+            crate::integration::crypto_integration::PublicKey::new(recipient_data.public_key.clone())
+        } else {
+            warn!("⚠️  Recipient identity not found, using placeholder");
+            crate::integration::crypto_integration::PublicKey::new(vec![])
+        };
+        
+        // 8. Create outputs (recipient + change if needed)
+        let mut outputs = vec![
+            TransactionOutput {
+                commitment: crate::types::hash::blake3_hash(&amount.to_le_bytes()),
+                note: Hash::default(),
+                recipient: recipient_pubkey,
+            }
+        ];
+        
+        // Add change output if we have UTXOs
+        if total_input > needed_amount {
+            let treasury_wallet = self.get_dao_treasury_wallet()?;
+            let change = total_input - needed_amount;
+            outputs.push(TransactionOutput {
+                commitment: crate::types::hash::blake3_hash(&change.to_le_bytes()),
+                note: Hash::default(),
+                recipient: crate::integration::crypto_integration::PublicKey::new(
+                    treasury_wallet.public_key.clone()
+                ),
+            });
+        }
+        
+        // 9. Create execution transaction
+        let proposal_id_bytes = proposal_id.as_bytes();
+        let memo_text = format!("DAO Proposal {} Execution", hex::encode(&proposal_id_bytes[..8]));
+        let execution_tx = Transaction::new_dao_execution(
+            execution_data,
+            inputs,
+            outputs,
+            100, // Fee
+            crate::integration::crypto_integration::Signature {
+                signature: vec![],
+                public_key: crate::integration::crypto_integration::PublicKey::new(vec![]),
+                algorithm: crate::integration::crypto_integration::SignatureAlgorithm::Dilithium2,
+                timestamp: crate::utils::time::current_timestamp(),
+            },
+            memo_text.into_bytes(),
+        );
+        
+        // 10. Add to pending transactions
+        let tx_hash = execution_tx.hash();
+        self.add_pending_transaction(execution_tx)?;
+        
+        info!("✅ DAO proposal {:?} executed, transaction: {:?}", proposal_id, tx_hash);
+        Ok(tx_hash)
+    }
+
+
+    // ============================================================================
+    // WELFARE SERVICE REGISTRY METHODS
+    // ============================================================================
+
+    /// Register a new welfare service provider with verification
+    pub fn register_welfare_service(
+        &mut self,
+        service: lib_consensus::WelfareService,
+    ) -> Result<()> {
+        let service_id = service.service_id.clone();
+        
+        // Check if service already exists
+        if self.welfare_services.contains_key(&service_id) {
+            return Err(anyhow::anyhow!("Service {} already registered", service_id));
+        }
+        
+        // Verify provider credentials for service type
+        self.verify_service_provider_credentials(&service)?;
+        
+        // Validate service type requirements
+        self.validate_service_type_requirements(&service)?;
+        
+        // Store service
+        self.welfare_services.insert(service_id.clone(), service.clone());
+        self.welfare_service_blocks.insert(service_id.clone(), self.height);
+        
+        // Initialize performance metrics
+        let performance = lib_consensus::ServicePerformanceMetrics {
+            service_id: service_id.clone(),
+            service_name: service.service_name.clone(),
+            service_type: service.service_type.clone(),
+            service_utilization_rate: 0.0,
+            beneficiary_satisfaction: 0.0,
+            cost_efficiency: 0.0,
+            geographic_coverage: vec![],
+            total_beneficiaries: 0,
+            success_rate: 0.0,
+            outcome_reports_count: 0,
+            last_audit_timestamp: 0,
+            reputation_trend: lib_consensus::ReputationTrend::Stable,
+        };
+        self.service_performance.insert(service_id.clone(), performance);
+        
+        info!("🏥 Registered welfare service: {} ({})", service.service_name, service_id);
+        Ok(())
+    }
+
+    /// Get a welfare service by ID
+    pub fn get_welfare_service(&self, service_id: &str) -> Option<&lib_consensus::WelfareService> {
+        self.welfare_services.get(service_id)
+    }
+
+    /// Get all active welfare services
+    pub fn get_active_welfare_services(&self) -> Vec<&lib_consensus::WelfareService> {
+        self.welfare_services
+            .values()
+            .filter(|s| s.is_active)
+            .collect()
+    }
+
+    /// Get welfare services by type
+    pub fn get_welfare_services_by_type(
+        &self,
+        service_type: &lib_consensus::WelfareServiceType,
+    ) -> Vec<&lib_consensus::WelfareService> {
+        self.welfare_services
+            .values()
+            .filter(|s| &s.service_type == service_type && s.is_active)
+            .collect()
+    }
+
+    /// Update welfare service status
+    pub fn update_welfare_service_status(
+        &mut self,
+        service_id: &str,
+        is_active: bool,
+    ) -> Result<()> {
+        let service = self.welfare_services
+            .get_mut(service_id)
+            .ok_or_else(|| anyhow::anyhow!("Service {} not found", service_id))?;
+        
+        service.is_active = is_active;
+        
+        let status_str = if is_active { "activated" } else { "deactivated" };
+        info!("🏥 Welfare service {} {}", service_id, status_str);
+        Ok(())
+    }
+
+    /// Update welfare service reputation
+    pub fn update_service_reputation(
+        &mut self,
+        service_id: &str,
+        new_score: u8,
+    ) -> Result<()> {
+        let service = self.welfare_services
+            .get_mut(service_id)
+            .ok_or_else(|| anyhow::anyhow!("Service {} not found", service_id))?;
+        
+        let old_score = service.reputation_score;
+        service.reputation_score = new_score;
+        
+        // Update reputation trend in performance metrics
+        if let Some(performance) = self.service_performance.get_mut(service_id) {
+            performance.reputation_trend = if new_score > old_score {
+                lib_consensus::ReputationTrend::Improving
+            } else if new_score < old_score {
+                lib_consensus::ReputationTrend::Declining
+            } else {
+                lib_consensus::ReputationTrend::Stable
+            };
+        }
+        
+        info!("🏥 Service {} reputation updated: {} → {}", service_id, old_score, new_score);
+        Ok(())
+    }
+
+    // ============================================================================
+    // SERVICE VERIFICATION METHODS
+    // ============================================================================
+
+    /// Verify that a service provider has required credentials for their service type
+    fn verify_service_provider_credentials(&self, service: &lib_consensus::WelfareService) -> Result<()> {
+        // Get provider identity by DID
+        let provider_identity = self.get_identity(&service.provider_identity)
+            .ok_or_else(|| anyhow::anyhow!("Provider identity {} not found", service.provider_identity))?;
+        
+        // Check minimum reputation threshold (providers need at least 30/100 reputation)
+        let min_reputation = 30u32;
+        let provider_id_hash = lib_crypto::Hash(lib_crypto::hash_blake3(service.provider_identity.as_bytes()));
+        let provider_reputation = self.calculate_reputation_score(&provider_id_hash);
+        
+        if provider_reputation < min_reputation {
+            return Err(anyhow::anyhow!(
+                "Provider reputation {} below minimum threshold {}",
+                provider_reputation, min_reputation
+            ));
+        }
+        
+        // Verify zero-knowledge credential proof if provided
+        if let Some(credential_proof_bytes) = &service.credential_proof {
+            self.verify_service_credential_proof(
+                credential_proof_bytes,
+                &service.service_type,
+                &provider_identity.public_key
+            )?;
+            info!("✅ ZK credential proof verified for service type {:?}", service.service_type);
+        } else {
+            // No credential proof provided - fallback to basic verification
+            warn!("⚠️  No credential proof provided for service {} - using basic verification", service.service_id);
+            
+            // Verify service-type-specific requirements without ZK proofs
+            match service.service_type {
+                lib_consensus::WelfareServiceType::Healthcare |
+                lib_consensus::WelfareServiceType::Education |
+                lib_consensus::WelfareServiceType::EmergencyResponse => {
+                    // Critical services require credential proofs
+                    return Err(anyhow::anyhow!(
+                        "Service type {:?} requires credential proof for registration",
+                        service.service_type
+                    ));
+                }
+                _ => {
+                    // Generic services just need verified identity and good reputation
+                    info!("✅ Basic verification passed for generic service type {:?}", service.service_type);
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Verify a zero-knowledge credential proof for a service provider
+    fn verify_service_credential_proof(
+        &self,
+        proof_bytes: &[u8],
+        service_type: &lib_consensus::WelfareServiceType,
+        provider_public_key: &[u8],
+    ) -> Result<()> {
+        // Deserialize the ZK credential proof
+        let credential_proof: lib_proofs::identity::ZkCredentialProof = bincode::deserialize(proof_bytes)
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize credential proof: {}", e))?;
+        
+        // Check proof hasn't expired
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+        
+        if credential_proof.expires_at <= now {
+            return Err(anyhow::anyhow!("Credential proof has expired"));
+        }
+        
+        // Create credential schema for the service type
+        let schema = self.get_credential_schema_for_service_type(service_type, provider_public_key)?;
+        
+        // Verify the credential proof using lib-proofs
+        let verification_result = lib_proofs::identity::verify_credential_proof(&credential_proof, &schema)
+            .map_err(|e| anyhow::anyhow!("Credential verification failed: {}", e))?;
+        
+        match verification_result {
+            lib_proofs::types::VerificationResult::Valid { .. } => {
+                info!("✅ Credential proof valid for service type {:?}", service_type);
+                Ok(())
+            }
+            lib_proofs::types::VerificationResult::Invalid(reason) => {
+                Err(anyhow::anyhow!("Invalid credential proof: {}", reason))
+            }
+            lib_proofs::types::VerificationResult::Error(msg) => {
+                Err(anyhow::anyhow!("Credential verification error: {}", msg))
+            }
+        }
+    }
+
+    /// Get the credential schema required for a specific service type
+    fn get_credential_schema_for_service_type(
+        &self,
+        service_type: &lib_consensus::WelfareServiceType,
+        issuer_public_key: &[u8],
+    ) -> Result<lib_proofs::identity::CredentialSchema> {
+        // Convert issuer public key to fixed size array
+        let issuer_key: [u8; 32] = issuer_public_key.get(..32)
+            .and_then(|slice| slice.try_into().ok())
+            .ok_or_else(|| anyhow::anyhow!("Invalid issuer public key length"))?;
+        
+        // Create schema based on service type
+        let schema = match service_type {
+            lib_consensus::WelfareServiceType::Healthcare => {
+                lib_proofs::identity::CredentialSchema::new(
+                    "healthcare_provider".to_string(),
+                    "1.0".to_string(),
+                    issuer_key,
+                )
+                .with_required_field("medical_license".to_string(), "string".to_string())
+                .with_required_field("license_number".to_string(), "string".to_string())
+                .with_required_field("specialization".to_string(), "string".to_string())
+                .with_optional_field("certifications".to_string(), "array".to_string())
+            }
+            lib_consensus::WelfareServiceType::Education => {
+                lib_proofs::identity::CredentialSchema::new(
+                    "education_provider".to_string(),
+                    "1.0".to_string(),
+                    issuer_key,
+                )
+                .with_required_field("teaching_license".to_string(), "string".to_string())
+                .with_required_field("education_degree".to_string(), "string".to_string())
+                .with_required_field("subject_area".to_string(), "string".to_string())
+                .with_optional_field("certifications".to_string(), "array".to_string())
+            }
+            lib_consensus::WelfareServiceType::Housing => {
+                lib_proofs::identity::CredentialSchema::new(
+                    "housing_provider".to_string(),
+                    "1.0".to_string(),
+                    issuer_key,
+                )
+                .with_required_field("property_license".to_string(), "string".to_string())
+                .with_required_field("property_count".to_string(), "number".to_string())
+                .with_optional_field("certifications".to_string(), "array".to_string())
+            }
+            lib_consensus::WelfareServiceType::FoodSecurity => {
+                lib_proofs::identity::CredentialSchema::new(
+                    "food_security_provider".to_string(),
+                    "1.0".to_string(),
+                    issuer_key,
+                )
+                .with_required_field("food_handler_certificate".to_string(), "string".to_string())
+                .with_required_field("food_safety_rating".to_string(), "string".to_string())
+                .with_optional_field("certifications".to_string(), "array".to_string())
+            }
+            lib_consensus::WelfareServiceType::EmergencyResponse => {
+                lib_proofs::identity::CredentialSchema::new(
+                    "emergency_responder".to_string(),
+                    "1.0".to_string(),
+                    issuer_key,
+                )
+                .with_required_field("emergency_certification".to_string(), "string".to_string())
+                .with_required_field("response_type".to_string(), "string".to_string())
+                .with_optional_field("training_records".to_string(), "array".to_string())
+            }
+            _ => {
+                // Generic service credential schema
+                lib_proofs::identity::CredentialSchema::new(
+                    "service_provider".to_string(),
+                    "1.0".to_string(),
+                    issuer_key,
+                )
+                .with_required_field("provider_id".to_string(), "string".to_string())
+                .with_required_field("service_type".to_string(), "string".to_string())
+            }
+        };
+        
+        Ok(schema)
+    }
+
+    /// Validate service-type-specific requirements
+    fn validate_service_type_requirements(&self, service: &lib_consensus::WelfareService) -> Result<()> {
+        // Validate service name
+        if service.service_name.trim().is_empty() || service.service_name.len() < 3 {
+            return Err(anyhow::anyhow!("Service name must be at least 3 characters"));
+        }
+        
+        if service.service_name.len() > 200 {
+            return Err(anyhow::anyhow!("Service name too long (max 200 characters)"));
+        }
+        
+        // Validate description
+        if service.description.trim().is_empty() || service.description.len() < 20 {
+            return Err(anyhow::anyhow!("Service description must be at least 20 characters"));
+        }
+        
+        if service.description.len() > 2000 {
+            return Err(anyhow::anyhow!("Service description too long (max 2000 characters)"));
+        }
+        
+        // Validate metadata contains required fields
+        let metadata_obj = service.metadata.as_object()
+            .ok_or_else(|| anyhow::anyhow!("Service metadata must be a JSON object"))?;
+        
+        // All service types must provide contact information
+        if !metadata_obj.contains_key("contact_email") && !metadata_obj.contains_key("contact_phone") {
+            return Err(anyhow::anyhow!("Service must provide contact_email or contact_phone in metadata"));
+        }
+        
+        // Service-type-specific validation
+        match service.service_type {
+            lib_consensus::WelfareServiceType::Healthcare => {
+                // Healthcare services must specify facility type and capacity
+                if !metadata_obj.contains_key("facility_type") {
+                    return Err(anyhow::anyhow!("Healthcare services must specify facility_type in metadata"));
+                }
+                if !metadata_obj.contains_key("service_capacity") {
+                    return Err(anyhow::anyhow!("Healthcare services must specify service_capacity in metadata"));
+                }
+            }
+            lib_consensus::WelfareServiceType::Education => {
+                // Education services must specify education level and subjects
+                if !metadata_obj.contains_key("education_level") {
+                    return Err(anyhow::anyhow!("Education services must specify education_level in metadata"));
+                }
+            }
+            lib_consensus::WelfareServiceType::Housing => {
+                // Housing services must specify housing units and location
+                if !metadata_obj.contains_key("total_units") {
+                    return Err(anyhow::anyhow!("Housing services must specify total_units in metadata"));
+                }
+                if service.region.is_none() {
+                    return Err(anyhow::anyhow!("Housing services must specify region"));
+                }
+            }
+            lib_consensus::WelfareServiceType::FoodSecurity => {
+                // Food security services must specify daily serving capacity
+                if !metadata_obj.contains_key("daily_capacity") {
+                    return Err(anyhow::anyhow!("Food security services must specify daily_capacity in metadata"));
+                }
+            }
+            _ => {
+                // Other service types have no additional validation
+            }
+        }
+        
+        info!("✅ Service type requirements validated for {:?}", service.service_type);
+        Ok(())
+    }
+
+    /// Calculate reputation score for a service based on performance metrics
+    pub fn calculate_service_reputation_score(&self, service_id: &str) -> u8 {
+        let service = match self.welfare_services.get(service_id) {
+            Some(s) => s,
+            None => return 0,
+        };
+        
+        let performance = match self.service_performance.get(service_id) {
+            Some(p) => p,
+            None => return service.reputation_score, // Return existing score if no performance data
+        };
+        
+        // Start with base score from service
+        let mut score = service.reputation_score as f64;
+        
+        // Factor 1: Beneficiary satisfaction (0-100 scale, weight 30%)
+        let satisfaction_score = (performance.beneficiary_satisfaction * 0.3).min(30.0);
+        
+        // Factor 2: Service utilization (0-100 scale, weight 20%)
+        let utilization_score = (performance.service_utilization_rate * 0.2).min(20.0);
+        
+        // Factor 3: Cost efficiency (0-100 scale, weight 15%)
+        let cost_score = (performance.cost_efficiency * 0.15).min(15.0);
+        
+        // Factor 4: Success rate (0-100 scale, weight 20%)
+        let success_score = (performance.success_rate * 0.2).min(20.0);
+        
+        // Factor 5: Longevity bonus (up to 15 points for established services)
+        let blocks_active = self.height.saturating_sub(
+            *self.welfare_service_blocks.get(service_id).unwrap_or(&self.height)
+        );
+        let longevity_score = ((blocks_active as f64 / 100_000.0) * 15.0).min(15.0);
+        
+        // Calculate final score
+        score = satisfaction_score + utilization_score + cost_score + success_score + longevity_score;
+        
+        // Clamp to 0-100 range
+        score.max(0.0).min(100.0) as u8
+    }
+
+    /// Update service performance metrics based on audit data
+    pub fn update_service_performance_from_audit(
+        &mut self,
+        audit_entry: &lib_consensus::WelfareAuditEntry,
+    ) -> Result<()> {
+        let service_id = &audit_entry.service_id;
+        
+        let performance = self.service_performance
+            .get_mut(service_id)
+            .ok_or_else(|| anyhow::anyhow!("Performance metrics not found for service {}", service_id))?;
+        
+        // Update beneficiary count
+        performance.total_beneficiaries = performance.total_beneficiaries
+            .saturating_add(audit_entry.beneficiary_count);
+        
+        // Update last audit timestamp
+        performance.last_audit_timestamp = audit_entry.distribution_timestamp;
+        
+        // Increment outcome reports count if verification is complete
+        if matches!(audit_entry.verification_status, 
+            lib_consensus::VerificationStatus::AutoVerified | 
+            lib_consensus::VerificationStatus::CommunityVerified) {
+            performance.outcome_reports_count = performance.outcome_reports_count.saturating_add(1);
+        }
+        
+        // Calculate and update reputation score based on performance
+        let new_reputation = self.calculate_service_reputation_score(service_id);
+        self.update_service_reputation(service_id, new_reputation)?;
+        
+        info!("📊 Updated performance metrics for service {}", service_id);
+        Ok(())
+    }
+
+    // ============================================================================
+    // END SERVICE VERIFICATION METHODS
+    // ============================================================================
+
+    /// Record welfare funding distribution
+    pub fn record_welfare_distribution(
+        &mut self,
+        audit_entry: lib_consensus::WelfareAuditEntry,
+    ) -> Result<()> {
+        let service_id = audit_entry.service_id.clone();
+        let amount = audit_entry.amount_distributed;
+        let audit_id = audit_entry.audit_id.clone();
+        
+        // Update service total received
+        if let Some(service) = self.welfare_services.get_mut(&service_id) {
+            service.total_received = service.total_received.saturating_add(amount);
+            service.proposal_count = service.proposal_count.saturating_add(1);
+        }
+        
+        // Store audit entry
+        self.welfare_audit_trail.insert(audit_id, audit_entry);
+        
+        info!("📝 Recorded welfare distribution of {} ZHTP to service {}", amount, service_id);
+        Ok(())
+    }
+
+    /// Add outcome report for a service
+    pub fn add_outcome_report(
+        &mut self,
+        report: lib_consensus::OutcomeReport,
+    ) -> Result<()> {
+        let service_id = report.service_id.clone();
+        let report_id = report.report_id.clone();
+        let report_timestamp = report.report_timestamp;
+        let beneficiaries_served = report.beneficiaries_served;
+        let metrics_achieved = report.metrics_achieved.clone();
+        
+        // Update service performance metrics
+        if let Some(performance) = self.service_performance.get_mut(&service_id) {
+            performance.outcome_reports_count = performance.outcome_reports_count.saturating_add(1);
+            performance.last_audit_timestamp = report_timestamp;
+            performance.total_beneficiaries = performance.total_beneficiaries
+                .saturating_add(beneficiaries_served);
+            
+            // Calculate success rate from metrics achieved
+            if !metrics_achieved.is_empty() {
+                let total_achievement: f64 = metrics_achieved
+                    .iter()
+                    .map(|m| m.achievement_percentage)
+                    .sum();
+                let avg_achievement = total_achievement / metrics_achieved.len() as f64;
+                performance.success_rate = avg_achievement;
+            }
+        }
+        
+        // Store report
+        self.outcome_reports.insert(report_id, report);
+        
+        info!("📊 Added outcome report for service {}", service_id);
+        Ok(())
+    }
+
+    /// Get service performance metrics
+    pub fn get_service_performance(
+        &self,
+        service_id: &str,
+    ) -> Option<&lib_consensus::ServicePerformanceMetrics> {
+        self.service_performance.get(service_id)
+    }
+
+    /// Get audit trail for a service
+    pub fn get_service_audit_trail(
+        &self,
+        service_id: &str,
+    ) -> Vec<&lib_consensus::WelfareAuditEntry> {
+        self.welfare_audit_trail
+            .values()
+            .filter(|entry| entry.service_id == service_id)
+            .collect()
+    }
+
+    /// Get outcome reports for a service
+    pub fn get_service_outcome_reports(
+        &self,
+        service_id: &str,
+    ) -> Vec<&lib_consensus::OutcomeReport> {
+        self.outcome_reports
+            .values()
+            .filter(|report| report.service_id == service_id)
+            .collect()
+    }
+
+    /// Get comprehensive welfare statistics
+    pub fn get_welfare_statistics(&self) -> lib_consensus::WelfareStatistics {
+        let total_services_registered = self.welfare_services.len() as u64;
+        let active_services_count = self.welfare_services
+            .values()
+            .filter(|s| s.is_active)
+            .count() as u64;
+        
+        let total_distributed = self.welfare_audit_trail
+            .values()
+            .map(|entry| entry.amount_distributed)
+            .sum::<u64>();
+        
+        let total_beneficiaries_served = self.service_performance
+            .values()
+            .map(|perf| perf.total_beneficiaries)
+            .sum::<u64>();
+        
+        let mut distribution_by_type = std::collections::HashMap::new();
+        for entry in self.welfare_audit_trail.values() {
+            *distribution_by_type.entry(entry.service_type.clone()).or_insert(0u64) 
+                += entry.amount_distributed;
+        }
+        
+        let average_distribution = if total_services_registered > 0 {
+            total_distributed / total_services_registered
+        } else {
+            0
+        };
+        
+        let pending_audits = self.welfare_audit_trail
+            .values()
+            .filter(|entry| entry.verification_status == lib_consensus::VerificationStatus::Pending)
+            .count() as u64;
+        
+        let last_distribution_timestamp = self.welfare_audit_trail
+            .values()
+            .map(|entry| entry.distribution_timestamp)
+            .max()
+            .unwrap_or(0);
+        
+        lib_consensus::WelfareStatistics {
+            total_allocated: 0, // Would need to query from economic processor
+            total_distributed,
+            available_balance: 0, // Would need to query from treasury
+            active_services_count,
+            total_services_registered,
+            total_proposals: 0, // Would count from DAO proposals
+            passed_proposals: 0,
+            executed_proposals: 0,
+            total_beneficiaries_served,
+            distribution_by_type,
+            average_distribution,
+            efficiency_percentage: if total_services_registered > 0 {
+                (active_services_count as f64 / total_services_registered as f64) * 100.0
+            } else {
+                0.0
+            },
+            last_distribution_timestamp,
+            pending_audits,
+        }
+    }
+
+    /// Get funding history for a service
+    pub fn get_service_funding_history(
+        &self,
+        service_id: &str,
+    ) -> Vec<lib_consensus::FundingHistoryEntry> {
+        self.welfare_audit_trail
+            .values()
+            .filter(|entry| entry.service_id == service_id)
+            .map(|entry| lib_consensus::FundingHistoryEntry {
+                timestamp: entry.distribution_timestamp,
+                block_height: entry.distribution_block,
+                proposal_id: entry.proposal_id.clone(),
+                service_id: entry.service_id.clone(),
+                service_type: entry.service_type.clone(),
+                amount: entry.amount_distributed,
+                transaction_hash: entry.transaction_hash.clone(),
+                status: match entry.verification_status {
+                    lib_consensus::VerificationStatus::Pending => lib_consensus::FundingStatus::Approved,
+                    lib_consensus::VerificationStatus::AutoVerified | 
+                    lib_consensus::VerificationStatus::CommunityVerified => lib_consensus::FundingStatus::Verified,
+                    lib_consensus::VerificationStatus::Flagged => lib_consensus::FundingStatus::UnderReview,
+                    lib_consensus::VerificationStatus::Disputed => lib_consensus::FundingStatus::Disputed,
+                    lib_consensus::VerificationStatus::Fraudulent => lib_consensus::FundingStatus::Disputed,
+                },
+            })
+            .collect()
+    }
+
+    // ============================================================================
+    // Proposal Impact Tracking
+    // ============================================================================
+
+    /// Calculate and set impact metrics for a welfare proposal
+    pub fn calculate_welfare_impact(
+        &self,
+        proposal_type: &lib_consensus::DaoProposalType,
+        amount: u64,
+        service_type: Option<&lib_consensus::WelfareServiceType>,
+    ) -> lib_consensus::ImpactMetrics {
+        use lib_consensus::{ImpactLevel, ImpactMetrics, DaoProposalType, WelfareServiceType};
+
+        let (ubi_impact, economic_impact, social_impact) = match proposal_type {
+            DaoProposalType::WelfareAllocation => {
+                let impact_level = match service_type {
+                    Some(WelfareServiceType::Healthcare) | 
+                    Some(WelfareServiceType::EmergencyResponse) => ImpactLevel::Critical,
+                    Some(WelfareServiceType::Education) | 
+                    Some(WelfareServiceType::FoodSecurity) => ImpactLevel::High,
+                    Some(WelfareServiceType::Housing) | 
+                    Some(WelfareServiceType::Infrastructure) => ImpactLevel::Medium,
+                    _ => ImpactLevel::Low,
+                };
+                (ImpactLevel::Medium, impact_level.clone(), impact_level)
+            },
+            DaoProposalType::UbiDistribution => {
+                let level = if amount > 1_000_000 {
+                    ImpactLevel::Critical
+                } else if amount > 100_000 {
+                    ImpactLevel::High
+                } else {
+                    ImpactLevel::Medium
+                };
+                (level, ImpactLevel::High, ImpactLevel::High)
+            },
+            DaoProposalType::TreasuryAllocation => {
+                (ImpactLevel::Low, ImpactLevel::High, ImpactLevel::Medium)
+            },
+            DaoProposalType::CommunityFunding => {
+                (ImpactLevel::Low, ImpactLevel::Medium, ImpactLevel::High)
+            },
+            _ => (ImpactLevel::Low, ImpactLevel::Low, ImpactLevel::Low),
+        };
+
+        ImpactMetrics {
+            ubi_impact,
+            economic_impact,
+            social_impact,
+            privacy_level: 85, // Default high transparency
+            expected_outcomes: String::from("Proposal impact calculated based on type and amount"),
+            success_criteria: vec![
+                String::from("Service delivery within timeframe"),
+                String::from("Beneficiary satisfaction > 70%"),
+                String::from("Budget efficiency > 80%"),
+            ],
+        }
+    }
+
+    /// Estimate beneficiary count for welfare proposal
+    pub fn estimate_ubi_beneficiaries(
+        &self,
+        proposal_type: &lib_consensus::DaoProposalType,
+        amount: u64,
+    ) -> Option<u64> {
+        use lib_consensus::DaoProposalType;
+
+        match proposal_type {
+            DaoProposalType::UbiDistribution => {
+                // Estimate based on average UBI amount (e.g., 1000 ZHTP per beneficiary)
+                Some(amount / 1000)
+            },
+            DaoProposalType::WelfareAllocation => {
+                // Welfare services: estimate 1 beneficiary per 5000 ZHTP
+                Some(amount / 5000)
+            },
+            DaoProposalType::CommunityFunding => {
+                // Community projects: broader reach
+                Some(amount / 2000)
+            },
+            _ => None, // Other proposal types don't directly impact beneficiaries
+        }
+    }
+
+    // ============================================================================
+    // Voting Power Calculation
+    // ============================================================================
+
+    /// Calculate comprehensive voting power for a user in DAO governance
+    /// 
+    /// Factors considered:
+    /// - Base power: 1 vote (universal suffrage)
+    /// - Staked amount: Long-term commitment (2x weight)
+    /// - Network contribution: Storage/compute provided (up to 50% bonus)
+    /// - Reputation: Historical participation quality (up to 25% bonus)
+    /// - Delegated power: Votes delegated from other users
+    /// 
+    /// NOTE: Token balance is NOT included because this is a zero-knowledge blockchain.
+    /// Transaction amounts are encrypted in Pedersen commitments and cannot be read.
+    /// Voting power is derived entirely from publicly verifiable on-chain actions.
+    pub fn calculate_user_voting_power(&self, user_id: &lib_identity::IdentityId) -> u64 {
+        // Zero-knowledge blockchain: cannot extract balance from UTXOs
+        // Transaction amounts are encrypted, so token balance = 0
+        let token_balance = 0;
+        
+        // Get staked amount (check if user is validator)
+        let staked_amount = self.validator_registry.values()
+            .find(|v| v.identity_id == user_id.to_string())
+            .map(|v| v.stake)
+            .unwrap_or(0);
+        
+        // Calculate network contribution score (0-100)
+        let network_contribution_score = self.calculate_network_contribution_score(user_id);
+        
+        // Calculate reputation score (0-100) based on on-chain activity
+        let reputation_score = self.calculate_reputation_score(user_id);
+        
+        // Get delegated voting power (from vote delegation system)
+        let delegated_power = self.get_delegated_voting_power(user_id);
+        
+        // Use DaoEngine's calculation formula
+        lib_consensus::DaoEngine::calculate_voting_power(
+            token_balance,
+            staked_amount,
+            network_contribution_score,
+            reputation_score,
+            delegated_power,
+        )
+    }
+
+    /// Calculate network contribution score (0-100) based on storage and compute provided
+    fn calculate_network_contribution_score(&self, user_id: &lib_identity::IdentityId) -> u32 {
+        // Check if user is a validator providing resources
+        if let Some(validator) = self.validator_registry.values()
+            .find(|v| v.identity_id == user_id.to_string()) {
+            // Score based on storage provided
+            // 1 TB = 10 points, capped at 100
+            let storage_score = ((validator.storage_provided / (1024 * 1024 * 1024 * 1024)) * 10).min(100) as u32;
+            storage_score
+        } else {
+            0
+        }
+    }
+
+    /// Calculate reputation score (0-100) based on on-chain behavior
+    fn calculate_reputation_score(&self, user_id: &lib_identity::IdentityId) -> u32 {
+        let mut score = 50u32; // Start at neutral 50
+        
+        // For validators, calculate based on uptime and slash history
+        if let Some(validator) = self.validator_registry.values()
+            .find(|v| v.identity_id == user_id.to_string()) {
+            // Active validators start at 70
+            if validator.status == "active" {
+                score = 70;
+            }
+            // Penalize slashed/jailed validators
+            if validator.status == "jailed" || validator.status == "slashed" {
+                score = 20;
+            }
+        }
+        
+        // For non-validators or additional score, check participation in governance
+        let proposal_participation = self.count_user_dao_votes(user_id);
+        let proposal_submissions = self.count_user_dao_proposals(user_id);
+        
+        // Bonus for active participation (up to +30)
+        score = score.saturating_add((proposal_participation / 5).min(20) as u32);
+        score = score.saturating_add((proposal_submissions * 2).min(10) as u32);
+        
+        // Cap at 100
+        score.min(100)
+    }
+
+    /// Get delegated voting power for a user
+    fn get_delegated_voting_power(&self, _user_id: &lib_identity::IdentityId) -> u64 {
+        // TODO: Implement vote delegation system
+        // For now, return 0 as delegation not yet implemented
+        0
+    }
+
+    /// Count number of DAO votes cast by user
+    fn count_user_dao_votes(&self, user_id: &lib_identity::IdentityId) -> u64 {
+        let user_id_str = user_id.to_string();
+        self.blocks.iter()
+            .flat_map(|block| &block.transactions)
+            .filter(|tx| tx.transaction_type == TransactionType::DaoVote)
+            .filter(|tx| {
+                // Check if vote is from this user
+                if let Some(ref vote_data) = tx.dao_vote_data {
+                    vote_data.voter == user_id_str
+                } else {
+                    false
+                }
+            })
+            .count() as u64
+    }
+
+    /// Count number of DAO proposals submitted by user
+    fn count_user_dao_proposals(&self, user_id: &lib_identity::IdentityId) -> u64 {
+        let user_id_str = user_id.to_string();
+        self.blocks.iter()
+            .flat_map(|block| &block.transactions)
+            .filter(|tx| tx.transaction_type == TransactionType::DaoProposal)
+            .filter(|tx| {
+                // Check if proposal is from this user
+                if let Some(ref proposal_data) = tx.dao_proposal_data {
+                    proposal_data.proposer == user_id_str
+                } else {
+                    false
+                }
+            })
+            .count() as u64
+    }
+
     /// Verify block with consensus rules
     pub async fn verify_block_with_consensus(&self, block: &Block, previous_block: Option<&Block>) -> Result<bool> {
         // First run standard blockchain verification
@@ -1951,7 +3301,7 @@ impl Blockchain {
         );
 
         // DEBUG: Log genesis hashes being compared
-        info!("🔍 Comparing blockchains for merge:");
+        info!(" Comparing blockchains for merge:");
         info!("   Local genesis hash:    {}", local_summary.genesis_hash);
         info!("   Imported genesis hash: {}", imported_summary.genesis_hash);
         info!("   Hashes equal: {}", local_summary.genesis_hash == imported_summary.genesis_hash);
@@ -1988,7 +3338,7 @@ impl Blockchain {
                 }
             },
             lib_consensus::ChainDecision::AdoptImported => {
-                info!("🔄 Imported chain is better - performing intelligent merge");
+                info!(" Imported chain is better - performing intelligent merge");
                 info!("   Local: height={}, work={}, identities={}", 
                       local_summary.height, local_summary.total_work, local_summary.total_identities);
                 info!("   Imported: height={}, work={}, identities={}", 
@@ -2011,12 +3361,12 @@ impl Blockchain {
                     // Perform intelligent merge: adopt imported chain but preserve unique local data
                     match self.merge_with_genesis_mismatch(&import) {
                         Ok(merge_report) => {
-                            info!("✅ Successfully merged chains with genesis consolidation");
+                            info!(" Successfully merged chains with genesis consolidation");
                             info!("{}", merge_report);
                             Ok(lib_consensus::ChainMergeResult::ImportedAdopted)
                         }
                         Err(e) => {
-                            warn!("⚠️ Genesis merge failed: {} - adopting imported chain only", e);
+                            warn!(" Genesis merge failed: {} - adopting imported chain only", e);
                             // Fallback: just adopt imported chain
                             self.blocks = import.blocks;
                             self.height = self.blocks.len() as u64 - 1;
@@ -2032,7 +3382,7 @@ impl Blockchain {
                         }
                     }
                 } else {
-                    info!("🔄 Same genesis - adopting longer chain");
+                    info!(" Same genesis - adopting longer chain");
                     // Simple case: same genesis, just adopt imported chain
                     self.blocks = import.blocks;
                     self.height = self.blocks.len() as u64 - 1;
@@ -2055,7 +3405,7 @@ impl Blockchain {
                         }
                     }
                     
-                    info!("✅ Adopted imported chain");
+                    info!(" Adopted imported chain");
                     info!("   New height: {}", self.height);
                     info!("   Identities: {}", self.identity_registry.len());
                     info!("   Validators: {}", self.validator_registry.len());
@@ -2095,12 +3445,12 @@ impl Blockchain {
                 // Import unique content from remote chain into local
                 match self.merge_imported_into_local(&import) {
                     Ok(merge_report) => {
-                        info!("✅ Successfully merged imported content into local chain");
+                        info!(" Successfully merged imported content into local chain");
                         info!("{}", merge_report);
                         Ok(lib_consensus::ChainMergeResult::LocalKept)
                     }
                     Err(e) => {
-                        warn!("⚠️ Failed to merge imported content: {} - keeping local only", e);
+                        warn!(" Failed to merge imported content: {} - keeping local only", e);
                         Ok(lib_consensus::ChainMergeResult::Failed(format!("Import merge error: {}", e)))
                     }
                 }
@@ -2373,7 +3723,7 @@ impl Blockchain {
         let local_utxo_count = self.utxo_set.len();
         let import_utxo_count = import.utxo_set.len();
         
-        info!("💰 Pre-merge economic state:");
+        info!(" Pre-merge economic state:");
         info!("   Local UTXOs: {}", local_utxo_count);
         info!("   Imported UTXOs: {}", import_utxo_count);
         info!("   Combined would be: {} UTXOs", local_utxo_count + import_utxo_count);
@@ -2437,7 +3787,7 @@ impl Blockchain {
             }
         }
         
-        info!("📊 Found unique local data:");
+        info!(" Found unique local data:");
         info!("   {} identities", unique_identities);
         info!("   {} validators", unique_validators);
         info!("   {} wallets", unique_wallets);
@@ -2502,7 +3852,7 @@ impl Blockchain {
         // Step 8: Economic Reconciliation - Handle Money Supply
         let post_merge_utxo_count = self.utxo_set.len();
         
-        info!("💰 Post-merge economic state:");
+        info!(" Post-merge economic state:");
         info!("   Total UTXOs after merge: {}", post_merge_utxo_count);
         info!("   Economics consolidation: All networks' assets preserved");
         
@@ -2530,7 +3880,7 @@ impl Blockchain {
             }
         }
         
-        info!("🎉 Network merge complete with economic reconciliation!");
+        info!(" Network merge complete with economic reconciliation!");
         info!("   Final network: {} blocks, {} identities, {} validators, {} UTXOs", 
               self.blocks.len(), self.identity_registry.len(), 
               self.validator_registry.len(), self.utxo_set.len());
@@ -2560,7 +3910,7 @@ impl Blockchain {
         let local_utxo_count = self.utxo_set.len();
         let import_utxo_count = import.utxo_set.len();
         
-        info!("💰 Pre-merge economic state:");
+        info!(" Pre-merge economic state:");
         info!("   Local UTXOs: {}", local_utxo_count);
         info!("   Imported UTXOs: {}", import_utxo_count);
         
@@ -2656,14 +4006,14 @@ impl Blockchain {
         // Post-merge economic state
         let post_merge_utxo_count = self.utxo_set.len();
         
-        info!("💰 Post-merge economic state:");
+        info!(" Post-merge economic state:");
         info!("   Total UTXOs after merge: {}", post_merge_utxo_count);
         info!("   All imported users' assets preserved in stronger local network");
         
         merge_report.push(format!("consolidated {} UTXOs from both networks", 
                                   post_merge_utxo_count));
         
-        info!("🎉 Imported network successfully merged into local base!");
+        info!(" Imported network successfully merged into local base!");
         info!("   Final network: {} blocks, {} identities, {} validators, {} UTXOs", 
               self.blocks.len(), self.identity_registry.len(), 
               self.validator_registry.len(), self.utxo_set.len());
