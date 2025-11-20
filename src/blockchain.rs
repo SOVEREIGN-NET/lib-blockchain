@@ -234,6 +234,112 @@ impl Blockchain {
         self.broadcast_sender = Some(sender);
     }
 
+    /// Fund genesis block with initial UTXOs and register identities
+    /// 
+    /// This method handles the blockchain-specific operations for genesis funding:
+    /// - Creates UTXOs for validators, funding pools, and user wallets
+    /// - Registers identities and wallets in blockchain registries
+    /// - Updates genesis block with funding transaction
+    /// 
+    /// # Arguments
+    /// * `genesis_outputs` - Transaction outputs to add to genesis block
+    /// * `genesis_signature` - Signature for the genesis funding transaction
+    /// * `chain_id` - Network chain ID for the transaction
+    /// * `wallet_registrations` - Optional wallet data to register
+    /// * `identity_registrations` - Optional identity data to register
+    /// * `validator_registrations` - Optional validator data to register
+    pub fn fund_genesis_block(
+        &mut self,
+        genesis_outputs: Vec<crate::TransactionOutput>,
+        genesis_signature: crate::integration::crypto_integration::Signature,
+        chain_id: u64,
+        wallet_registrations: Vec<crate::transaction::WalletTransactionData>,
+        identity_registrations: Vec<crate::transaction::core::IdentityTransactionData>,
+        validator_registrations: Vec<ValidatorInfo>,
+    ) -> Result<()> {
+        info!("Funding genesis block with {} outputs", genesis_outputs.len());
+        
+        // Validate genesis block exists
+        if self.blocks.is_empty() {
+            return Err(anyhow::anyhow!("No genesis block found in blockchain"));
+        }
+        
+        let genesis_block = &mut self.blocks[0];
+        
+        // Create genesis funding transaction
+        let genesis_tx = crate::Transaction {
+            version: 1,
+            chain_id: chain_id as u8,
+            transaction_type: crate::types::TransactionType::Transfer,
+            inputs: vec![], // Genesis transaction has no inputs
+            outputs: genesis_outputs.clone(),
+            fee: 0,
+            signature: genesis_signature,
+            memo: b"Genesis funding transaction".to_vec(),
+            wallet_data: None,
+            identity_data: None,
+            validator_data: None,
+            dao_proposal_data: None,
+            dao_vote_data: None,
+            dao_execution_data: None,
+        };
+        
+        // Add genesis transaction to genesis block
+        genesis_block.transactions.push(genesis_tx.clone());
+        
+        // Recalculate merkle root
+        let updated_merkle_root = crate::transaction::hashing::calculate_transaction_merkle_root(&genesis_block.transactions);
+        genesis_block.header.merkle_root = updated_merkle_root;
+        
+        // Create UTXOs from genesis outputs
+        let genesis_tx_id = crate::types::hash::blake3_hash(b"genesis_funding_transaction");
+        for (index, output) in genesis_outputs.iter().enumerate() {
+            let utxo_hash = crate::types::hash::blake3_hash(
+                &format!("genesis_funding:{}:{}", hex::encode(genesis_tx_id), index).as_bytes()
+            );
+            self.utxo_set.insert(utxo_hash, output.clone());
+        }
+        
+        // Register wallets
+        for wallet_data in wallet_registrations {
+            let wallet_id_hex = hex::encode(wallet_data.wallet_id.as_bytes());
+            self.wallet_registry.insert(wallet_id_hex.clone(), wallet_data);
+            info!("Registered genesis wallet: {}", &wallet_id_hex[..16]);
+        }
+        
+        // Register identities
+        for identity_data in identity_registrations {
+            match self.register_identity(identity_data.clone()) {
+                Ok(_) => {
+                    info!("Registered genesis identity: {}", identity_data.did);
+                }
+                Err(e) => {
+                    warn!("Failed to register genesis identity {}: {}", identity_data.did, e);
+                }
+            }
+        }
+        
+        // Register validators
+        for validator_data in validator_registrations {
+            match self.register_validator(validator_data.clone()) {
+                Ok(_) => {
+                    info!("Registered genesis validator: {}", validator_data.identity_id);
+                }
+                Err(e) => {
+                    warn!("Failed to register genesis validator {}: {}", validator_data.identity_id, e);
+                }
+            }
+        }
+        
+        info!("Genesis funding complete: {} UTXOs, {} wallets, {} identities, {} validators",
+              genesis_outputs.len(),
+              self.wallet_registry.len(),
+              self.identity_registry.len(),
+              self.validator_registry.len());
+        
+        Ok(())
+    }
+
     /// Load blockchain from persistent storage
     pub async fn load_from_storage(storage_config: BlockchainStorageConfig, content_hash: lib_storage::types::ContentHash) -> Result<Self> {
         info!("Loading blockchain from storage");
@@ -1191,6 +1297,23 @@ impl Blockchain {
         // Verify the identity exists
         if !self.identity_registry.contains_key(&validator_info.identity_id) {
             return Err(anyhow::anyhow!("Identity {} must be registered before becoming a validator", validator_info.identity_id));
+        }
+        
+        // SECURITY: Validate minimum requirements for validator eligibility
+        // Edge nodes (minimal storage, no consensus capability) cannot become validators
+        if validator_info.stake < 100_000 {
+            return Err(anyhow::anyhow!(
+                "Insufficient stake for validator: {} SOV (minimum: 100,000 SOV required)",
+                validator_info.stake
+            ));
+        }
+        
+        // Validators must provide meaningful storage (edge nodes typically have <10GB)
+        if validator_info.storage_provided < 10_737_418_240 {  // 10 GB in bytes
+            return Err(anyhow::anyhow!(
+                "Insufficient storage for validator: {} bytes (minimum: 10 GB required for blockchain storage)",
+                validator_info.storage_provided
+            ));
         }
 
         // Create validator registration transaction (using Identity type as placeholder until we add Validator type)

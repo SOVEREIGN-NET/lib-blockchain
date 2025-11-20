@@ -1083,7 +1083,7 @@ impl BlockchainStorageManager {
     async fn create_system_identity(&self) -> Result<ZhtpIdentity> {
         // Create a system identity for storage operations
         use lib_identity::types::{IdentityType, AccessLevel};
-        use lib_identity::wallets::WalletManager;
+        use lib_identity::wallets::IdentityWallets;
         use lib_proofs::ZeroKnowledgeProof;
         use std::collections::HashMap;
 
@@ -1107,7 +1107,7 @@ impl BlockchainStorageManager {
             access_level: AccessLevel::FullCitizen, // Use FullCitizen instead of System
             metadata: HashMap::new(),
             private_data_id: None,
-            wallet_manager: WalletManager::new(system_id),
+            wallet_manager: IdentityWallets::new(system_id),
             did_document_hash: None,
             attestations: vec![],
             created_at: 0,
