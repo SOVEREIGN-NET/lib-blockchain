@@ -1301,15 +1301,19 @@ impl Blockchain {
         
         // SECURITY: Validate minimum requirements for validator eligibility
         // Edge nodes (minimal storage, no consensus capability) cannot become validators
-        if validator_info.stake < 100_000 {
+        // Genesis bootstrap: Allow 1,000 SOV minimum for initial validator setup
+        // Production: Require 100,000 SOV minimum after genesis
+        let min_stake = if self.height == 0 { 1_000 } else { 100_000 };
+        if validator_info.stake < min_stake {
             return Err(anyhow::anyhow!(
-                "Insufficient stake for validator: {} SOV (minimum: 100,000 SOV required)",
-                validator_info.stake
+                "Insufficient stake for validator: {} SOV (minimum: {} SOV required)",
+                validator_info.stake, min_stake
             ));
         }
         
-        // Validators must provide meaningful storage (edge nodes typically have <10GB)
-        if validator_info.storage_provided < 10_737_418_240 {  // 10 GB in bytes
+        // Storage requirement: Only enforce for production validators after genesis
+        // Genesis validators (height 0) can register with any storage amount for testing
+        if self.height > 0 && validator_info.storage_provided < 10_737_418_240 {  // 10 GB in bytes
             return Err(anyhow::anyhow!(
                 "Insufficient storage for validator: {} bytes (minimum: 10 GB required for blockchain storage)",
                 validator_info.storage_provided
